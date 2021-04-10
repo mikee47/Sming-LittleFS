@@ -1,0 +1,17 @@
+{
+    "lfs-build": {
+        "title": "LittleFS Filesystem support",
+        "partition": {
+            "type": "data",
+            "subtype": "littlefs"
+        },
+        "properties": {
+            "config": {
+                "type": "string",
+                "format": "filename",
+                "title": "Build config file",
+                "description": "Path to .fwfs build configuration file"
+            }
+        }
+    }
+}

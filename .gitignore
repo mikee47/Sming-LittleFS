@@ -1,3 +1,2 @@
-*.pyc
-*.o
+out/
 /.submodule
