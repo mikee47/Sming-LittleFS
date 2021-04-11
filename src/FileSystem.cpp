@@ -23,6 +23,11 @@
 #include "include/LittleFS/Error.h"
 #include <IFS/Util.h>
 
+namespace
+{
+#include "debug.h"
+}
+
 namespace IFS
 {
 /**
@@ -383,6 +388,8 @@ int FileSystem::fillStat(const char* path, lfs_info& info, Stat& stat)
 	fd.meta.fillStat(stat);
 	stat.id = fd.file.id;
 
+	debug_e("FIL %s: %s", info.name, file_str(fd.file).c_str());
+
 	lfs_file_close(&lfs, &fd.file);
 	return FS_OK;
 }
@@ -487,6 +494,8 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 	if(err < 0) {
 		return Error::fromSystem(err);
 	}
+
+	debug_e("DIR %s: %s", info.name, dir_str(dir->dir).c_str());
 
 	String path = dir->path.c_str();
 	path += '/';
