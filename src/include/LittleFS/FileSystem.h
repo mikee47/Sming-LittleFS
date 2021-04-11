@@ -48,6 +48,21 @@ constexpr size_t LFS_CACHE_SIZE{32};
 constexpr size_t LFS_LOOKAHEAD_SIZE{16};
 
 /**
+	 * @brief Identifies LFS attribute tags
+	 */
+enum class AttributeTag {
+	ModifiedTime,
+	FileAttributes,
+	Acl,
+	Compression,
+};
+
+template <typename T> constexpr lfs_attr makeAttr(AttributeTag tag, T& value)
+{
+	return lfs_attr{uint8_t(tag), &value, sizeof(value)};
+}
+
+/**
  * Wraps LittleFS
  */
 class FileSystem : public IFileSystem
@@ -99,21 +114,18 @@ private:
 	int tryMount();
 	int fillStat(const char* path, lfs_info& info, Stat& stat);
 
-	/**
-	 * @brief Identifies LFS attribute tags
-	 */
-	enum class AttributeTag {
-		ModifiedTime,
-		FileAttributes,
-		Acl,
-		Compression,
-	};
-
 	struct FileMeta {
 		TimeStamp mtime;
 		FileAttributes attr;
 		ACL acl;
 		Compression compression;
+		static constexpr size_t attr_count{4};
+		struct lfs_attr attrs[attr_count]{
+			makeAttr(AttributeTag::ModifiedTime, mtime),
+			makeAttr(AttributeTag::FileAttributes, attr),
+			makeAttr(AttributeTag::Acl, acl),
+			makeAttr(AttributeTag::Compression, compression),
+		};
 
 		void fillStat(Stat& stat) const
 		{
@@ -135,24 +147,9 @@ private:
 		lfs_file_t file{};
 		FileMeta meta{};
 		uint8_t buffer[LFS_CACHE_SIZE];
-		struct lfs_attr attrs[4];
-		struct lfs_file_config config;
-
-		template <typename T> constexpr lfs_attr makeAttr(AttributeTag tag, T& value)
-		{
-			return lfs_attr{uint8_t(tag), &value, sizeof(value)};
-		}
-
-		FileDescriptor()
-			: attrs{
-				makeAttr(AttributeTag::ModifiedTime, meta.mtime),
-				makeAttr(AttributeTag::FileAttributes, meta.attr),
-				makeAttr(AttributeTag::Acl, meta.acl), 
-				makeAttr(AttributeTag::Compression, meta.compression),
-			  },
-			  config{buffer, attrs, ARRAY_SIZE(attrs)}
-		{
-		}
+		struct lfs_file_config config {
+			buffer, meta.attrs, meta.attr_count
+		};
 	};
 
 	template <typename T> int get_attr(const char* path, AttributeTag tag, T& attr)
