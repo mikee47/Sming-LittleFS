@@ -10,7 +10,12 @@
 #include <debug_progmem.h>
 #include <string.h>
 #include <inttypes.h>
+
+#ifdef SMING_RELEASE
+#define LFS_NO_ASSERT
+#else
 #include <assert.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,54 +30,40 @@ extern "C" {
 #endif
 
 // Logging functions
-#ifndef LFS_TRACE
 #ifdef LFS_YES_TRACE
 #define LFS_TRACE_(fmt, ...) debug_d("%s:%d:trace: " fmt "%s", __FILE__, __LINE__, __VA_ARGS__)
 #define LFS_TRACE(...) LFS_TRACE_(__VA_ARGS__, "")
 #else
 #define LFS_TRACE(...)
 #endif
-#endif
 
-#ifndef LFS_DEBUG
 #ifndef LFS_NO_DEBUG
 #define LFS_DEBUG_(fmt, ...) debug_i("%s:%d:debug: " fmt "%s", __FILE__, __LINE__, __VA_ARGS__)
 #define LFS_DEBUG(...) LFS_DEBUG_(__VA_ARGS__, "")
 #else
 #define LFS_DEBUG(...)
 #endif
-#endif
 
-#ifndef LFS_WARN
 #ifndef LFS_NO_WARN
 #define LFS_WARN_(fmt, ...) debug_w("%s:%d:warn: " fmt "%s", __FILE__, __LINE__, __VA_ARGS__)
 #define LFS_WARN(...) LFS_WARN_(__VA_ARGS__, "")
 #else
 #define LFS_WARN(...)
 #endif
-#endif
 
-#ifndef LFS_ERROR
 #ifndef LFS_NO_ERROR
 #define LFS_ERROR_(fmt, ...) debug_e("%s:%d:error: " fmt "%s", __FILE__, __LINE__, __VA_ARGS__)
 #define LFS_ERROR(...) LFS_ERROR_(__VA_ARGS__, "")
 #else
 #define LFS_ERROR(...)
 #endif
-#endif
 
 // Runtime assertions
-#ifndef LFS_ASSERT
 #ifndef LFS_NO_ASSERT
 #define LFS_ASSERT(test) assert(test)
 #else
 #define LFS_ASSERT(test)
 #endif
-#endif
-
-// Builtin functions, these may be replaced by more efficient
-// toolchain-specific implementations. LFS_NO_INTRINSICS falls back to a more
-// expensive basic C implementation for debugging purposes
 
 // Min/max functions for unsigned 32-bit numbers
 static inline uint32_t lfs_max(uint32_t a, uint32_t b)
