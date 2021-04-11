@@ -361,7 +361,22 @@ int FileSystem::stat(const char* path, Stat* stat)
 		return FS_OK;
 	}
 
-	return fillStat(path, info, *stat);
+	int res = fillStat(path, info, *stat);
+
+	if(res < 0 || info.type != LFS_TYPE_DIR) {
+		return res;
+	}
+
+	lfs_dir_t dir{};
+	err = lfs_dir_open(&lfs, &dir, path);
+	if(err < 0) {
+		return Error::fromSystem(err);
+	}
+
+	stat->id = dir.id;
+	lfs_dir_close(&lfs, &dir);
+
+	return FS_OK;
 }
 
 int FileSystem::fillStat(const char* path, lfs_info& info, Stat& stat)
@@ -505,7 +520,10 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 	 * TODO: Update littlefs library so we can fetch attributes
 	 * more efficiently, without having to open the file using the path.
 	 */
-	return fillStat(path.c_str(), info, stat);
+
+	int res = fillStat(path.c_str(), info, stat);
+	stat.id = dir->dir.id - 1;
+	return res;
 }
 
 int FileSystem::closedir(DirHandle dir)
