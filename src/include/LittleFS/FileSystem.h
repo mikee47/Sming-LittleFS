@@ -67,13 +67,21 @@ struct FileMeta {
 	FileAttributes attr;
 	ACL acl;
 	Compression compression;
-	static constexpr size_t attr_count{4};
-	struct lfs_attr attrs[attr_count]{
-		makeAttr(AttributeTag::ModifiedTime, mtime),
-		makeAttr(AttributeTag::FileAttributes, attr),
-		makeAttr(AttributeTag::Acl, acl),
-		makeAttr(AttributeTag::Compression, compression),
-	};
+};
+
+struct FileMetaAttr {
+	static constexpr size_t count{4};
+	struct lfs_attr attrs[count];
+
+	FileMetaAttr(FileMeta& meta)
+		: attrs({
+			  makeAttr(AttributeTag::ModifiedTime, meta.mtime),
+			  makeAttr(AttributeTag::FileAttributes, meta.attr),
+			  makeAttr(AttributeTag::Acl, meta.acl),
+			  makeAttr(AttributeTag::Compression, meta.compression),
+		  })
+	{
+	}
 };
 
 /**
@@ -119,8 +127,6 @@ public:
 	int check() override;
 
 private:
-	int flushMeta(FileHandle file);
-
 	void touch(FileHandle file)
 	{
 		settime(file, fsGetTimeUTC());
@@ -135,11 +141,14 @@ private:
 		CString name;
 		lfs_file_t file{};
 		FileMeta meta{};
+		BitSet<uint8_t, AttributeTag> dirty;
 		uint8_t buffer[LFS_CACHE_SIZE];
 		struct lfs_file_config config {
-			buffer, meta.attrs, meta.attr_count
+			buffer
 		};
 	};
+
+	int flushMeta(FileDescriptor& fd);
 
 	template <typename T> int get_attr(const char* path, AttributeTag tag, T& attr)
 	{
@@ -147,9 +156,33 @@ private:
 		return Error::fromSystem(err);
 	}
 
-	template <typename T> int set_attr(const char* path, AttributeTag tag, T& attr)
+	template <typename T> int get_attr(lfs_file_t& file, AttributeTag tag, T& attr)
+	{
+		int err = lfs_file_getattr(&lfs, &file, uint8_t(tag), &attr, sizeof(attr));
+		return Error::fromSystem(err);
+	}
+
+	template <typename T> int set_attr(const char* path, AttributeTag tag, const T& attr)
 	{
 		int err = lfs_setattr(&lfs, path, uint8_t(tag), &attr, sizeof(attr));
+		return Error::fromSystem(err);
+	}
+
+	template <typename T> int set_attr(lfs_file_t& file, AttributeTag tag, const T& attr)
+	{
+		int err = lfs_file_setattr(&lfs, &file, uint8_t(tag), &attr, sizeof(attr));
+		return Error::fromSystem(err);
+	}
+
+	template <typename T> int remove_attr(const char* path, AttributeTag tag)
+	{
+		int err = lfs_removeattr(&lfs, path, uint8_t(tag));
+		return Error::fromSystem(err);
+	}
+
+	template <typename T> int remove_attr(lfs_file_t& file, AttributeTag tag)
+	{
+		int err = lfs_file_removeattr(&lfs, &file, uint8_t(tag));
 		return Error::fromSystem(err);
 	}
 

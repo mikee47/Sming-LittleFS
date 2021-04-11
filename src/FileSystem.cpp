@@ -225,12 +225,17 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 		return Error::BadParam;
 	}
 
-	/*
-	 * The file may be marked 'read-only' in its metadata, so avoid modifications
-	 * (truncate) during the open phase until this has been checked.
-	 */
+	// If file is marked read-only, fail write requests
+	if(flags[OpenFlag::Write]) {
+		FileAttributes attr;
+		get_attr(path, AttributeTag::FileAttributes, attr);
+		if(attr[FileAttribute::ReadOnly]) {
+			return Error::ReadOnly;
+		}
+	}
+
 	lfs_open_flags oflags;
-	if(mapFileOpenFlags(flags - OpenFlag::Truncate, oflags).any()) {
+	if(mapFileOpenFlags(flags, oflags).any()) {
 		return FileHandle(Error::NotSupported);
 	}
 
@@ -241,7 +246,7 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 	for(unsigned i = 0; i < LFS_MAX_FDS; ++i) {
 		auto& fd = fileDescriptors[i];
 		if(!fd) {
-			fd.reset(new FileDescriptor{});
+			fd.reset(new FileDescriptor);
 			file = LFS_HANDLE_MIN + i;
 			break;
 		}
@@ -260,25 +265,9 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 		return err;
 	}
 
-	// If file is marked read-only, fail write requests
-	if(fd->meta.attr[FileAttribute::ReadOnly] && (flags[OpenFlag::Write])) {
-		lfs_file_close(&lfs, &fd->file);
-		fd.reset();
-		return Error::ReadOnly;
-	}
-
-	// Now truncate the file if so requested
-	if(flags[OpenFlag::Truncate]) {
-		int err = lfs_file_truncate(&lfs, &fd->file, 0);
-		if(err < 0) {
-			lfs_file_close(&lfs, &fd->file);
-			fd.reset();
-			return Error::fromSystem(err);
-		}
-
-		// Update modification timestamp
-		touch(file);
-	}
+	get_attr(fd->file, AttributeTag::Acl, fd->meta.acl);
+	get_attr(fd->file, AttributeTag::Compression, fd->meta.compression);
+	get_attr(fd->file, AttributeTag::FileAttributes, fd->meta.attr);
 
 	// Copy name into descriptor
 	if(path != nullptr) {
@@ -297,6 +286,8 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 int FileSystem::close(FileHandle file)
 {
 	GET_FD()
+
+	flushMeta(*fd);
 
 	int res = lfs_file_close(&lfs, &fd->file);
 	fd.reset();
@@ -334,9 +325,25 @@ int FileSystem::ftruncate(FileHandle file, size_t new_size)
 	return Error::fromSystem(res);
 }
 
+int FileSystem::flushMeta(FileDescriptor& fd)
+{
+	FileMetaAttr fma(fd.meta);
+	for(auto& attr : fma.attrs) {
+		auto a = AttributeTag(attr.type);
+		if(fd.dirty[a]) {
+			lfs_file_setattr(&lfs, &fd.file, attr.type, attr.buffer, attr.size);
+		}
+	}
+	fd.dirty.reset();
+
+	return FS_OK;
+}
+
 int FileSystem::flush(FileHandle file)
 {
 	GET_FD()
+
+	flushMeta(*fd);
 
 	int res = lfs_file_sync(&lfs, &fd->file);
 	return Error::fromSystem(res);
@@ -386,8 +393,9 @@ int FileSystem::stat(const char* path, Stat* stat)
 	}
 
 	FileMeta meta{};
+	FileMetaAttr fma(meta);
 	struct lfs_stat_config cfg {
-		meta.attrs, meta.attr_count
+		fma.attrs, fma.count
 	};
 	struct lfs_info info;
 	int err = lfs_statcfg(&lfs, path ?: "", &info, &cfg);
@@ -415,8 +423,8 @@ int FileSystem::fstat(FileHandle file, Stat* stat)
 	stat->fs = this;
 	stat->id = fd->file.id;
 	/*
-		 * TODO: Update littlefs library so we can query name of open file ?
-		 */
+	* TODO: Update littlefs library so we can query name of open file ?
+	*/
 	stat->name.copy(fd->name.c_str());
 	stat->size = size;
 	fillStat(*stat, fd->meta);
@@ -428,7 +436,11 @@ int FileSystem::setacl(FileHandle file, const ACL& acl)
 {
 	GET_FD()
 
-	fd->meta.acl = acl;
+	if(acl != fd->meta.acl) {
+		fd->meta.acl = acl;
+		fd->dirty += AttributeTag::Acl;
+	}
+
 	return FS_OK;
 }
 
@@ -441,7 +453,11 @@ int FileSystem::settime(FileHandle file, time_t mtime)
 {
 	GET_FD()
 
-	fd->meta.mtime = mtime;
+	if(mtime != fd->meta.mtime) {
+		fd->meta.mtime = mtime;
+		fd->dirty += AttributeTag::ModifiedTime;
+	}
+
 	return FS_OK;
 }
 
@@ -449,7 +465,11 @@ int FileSystem::setcompression(FileHandle file, const Compression& compression)
 {
 	GET_FD()
 
-	fd->meta.compression = compression;
+	if(compression != fd->meta.compression) {
+		fd->meta.compression = compression;
+		fd->dirty += AttributeTag::Compression;
+	}
+
 	return FS_OK;
 }
 
@@ -493,8 +513,9 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 	}
 
 	FileMeta meta{};
+	FileMetaAttr fma(meta);
 	struct lfs_stat_config cfg {
-		meta.attrs, meta.attr_count
+		fma.attrs, fma.count
 	};
 	struct lfs_info info;
 	int err = lfs_dir_readcfg(&lfs, &dir->dir, &info, &cfg);
