@@ -44,7 +44,7 @@ constexpr size_t LFS_READ_SIZE{16};
 constexpr size_t LFS_PROG_SIZE{16};
 constexpr size_t LFS_BLOCK_SIZE{4096};
 constexpr size_t LFS_BLOCK_CYCLES{500};
-constexpr size_t LFS_CACHE_SIZE{16};
+constexpr size_t LFS_CACHE_SIZE{32};
 constexpr size_t LFS_LOOKAHEAD_SIZE{16};
 
 /**
