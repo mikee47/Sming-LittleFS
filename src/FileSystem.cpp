@@ -513,6 +513,11 @@ int FileSystem::closedir(DirHandle dir)
 int FileSystem::mkdir(const char* path)
 {
 	int err = lfs_mkdir(&lfs, path);
+	if(err == 0) {
+		TimeStamp mtime;
+		mtime = fsGetTimeUTC();
+		set_attr(path, AttributeTag::ModifiedTime, mtime);
+	}
 	return Error::fromSystem(err);
 }
 
