@@ -1,0 +1,33 @@
+{
+    "name": "LFS Inspector",
+    "base_config": "standard-4m",
+    "options": [],
+    "partitions": {
+        "fwfs1": {
+            "address": "0x00100000",
+            "size": "512K",
+            "type": "data",
+            "subtype": "fwfs",
+            "filename": "out/fwfs1.bin",
+            "build": {
+                "target": "fwfs-build",
+                "config": "fsimage.fwfs"
+            },
+            "readonly": false,
+            "encrypted": false
+        },
+        "lfs1": {
+            "address": "0x00180000",
+            "size": "2536K",
+            "type": "data",
+            "subtype": "littlefs",
+            "readonly": false,
+            "encrypted": false,
+            "filename": "$(FW_BASE)/lfs1.bin",
+            "build": {
+                "target": "lfs-build",
+                "config": "fsimage.fwfs"
+            }
+        }
+    }
+}
