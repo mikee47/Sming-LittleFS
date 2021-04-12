@@ -461,6 +461,13 @@ int FileSystem::settime(FileHandle file, time_t mtime)
 	return FS_OK;
 }
 
+int FileSystem::settime(const char* path, time_t mtime)
+{
+	TimeStamp t;
+	t = mtime;
+	return set_attr(path, AttributeTag::ModifiedTime, t);
+}
+
 int FileSystem::setcompression(FileHandle file, const Compression& compression)
 {
 	GET_FD()

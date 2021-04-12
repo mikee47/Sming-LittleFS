@@ -109,6 +109,7 @@ public:
 	int setacl(FileHandle file, const ACL& acl) override;
 	int setattr(const char* path, FileAttributes attr) override;
 	int settime(FileHandle file, time_t mtime) override;
+	int settime(const char* path, time_t mtime) override;
 	int setcompression(FileHandle file, const Compression& compression) override;
 	FileHandle open(const char* path, OpenFlags flags) override;
 	FileHandle fopen(const Stat& stat, OpenFlags flags) override;
