@@ -1,0 +1,3 @@
+COMPONENT_DEPENDS := LittleFS
+HWCONFIG := lfsinspect
+HOST_NETWORK_OPTIONS := --nonet
