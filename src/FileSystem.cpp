@@ -160,7 +160,7 @@ int FileSystem::getinfo(Info& info)
 		if(usedBlocks < 0) {
 			return Error::fromSystem(usedBlocks);
 		}
-		info.volumeSize = usedBlocks * LFS_BLOCK_SIZE;
+		info.volumeSize = config.block_count * LFS_BLOCK_SIZE;
 		info.freeSpace = (config.block_count - usedBlocks) * LFS_BLOCK_SIZE;
 	}
 
