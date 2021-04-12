@@ -356,7 +356,7 @@ int FileSystem::write(FileHandle file, const void* data, size_t size)
 		return Error::fromSystem(res);
 	}
 
-	touch(file);
+	fd->touch();
 	return res;
 }
 
@@ -420,52 +420,79 @@ int FileSystem::fstat(FileHandle file, Stat* stat)
 	return FS_OK;
 }
 
-int FileSystem::setacl(FileHandle file, const ACL& acl)
+int FileSystem::fsetxattr(FileHandle file, AttributeTag tag, const void* data, size_t size)
 {
 	GET_FD()
 
-	if(acl != fd->acl) {
-		fd->acl = acl;
-		fd->dirty += AttributeTag::Acl;
+	if(data == nullptr) {
+		// Cannot delete standard attributes
+		if(tag < AttributeTag::UserStart) {
+			return Error::NotSupported;
+		}
+		int err = lfs_file_removeattr(&lfs, &fd->file, uint8_t(tag));
+		return Error::fromSystem(err);
 	}
 
-	return FS_OK;
+	auto attrSize = getAttributeSize(tag);
+	if(size < attrSize) {
+		return Error::BadParam;
+	}
+	auto value = fd->getattr(tag);
+	if(value != nullptr) {
+		if(memcmp(value, data, attrSize) != 0) {
+			memcpy(value, data, attrSize);
+			fd->dirty += tag;
+		}
+		return FS_OK;
+	}
+	return lfs_file_setattr(&lfs, &fd->file, uint8_t(tag), data, size);
 }
 
-int FileSystem::setattr(const char* path, FileAttributes attr)
-{
-	return set_attr(path, AttributeTag::FileAttributes, attr);
-}
-
-int FileSystem::settime(FileHandle file, time_t mtime)
+int FileSystem::fgetxattr(FileHandle file, AttributeTag tag, void* buffer, size_t size)
 {
 	GET_FD()
 
-	if(mtime != fd->mtime) {
-		fd->mtime = mtime;
-		fd->dirty += AttributeTag::ModifiedTime;
+	auto attrSize = getAttributeSize(tag);
+	if(size >= attrSize) {
+		auto value = fd->getattr(tag);
+		if(value != nullptr) {
+			memcpy(buffer, &value, attrSize);
+			return attrSize;
+		}
+		return lfs_file_getattr(&lfs, &fd->file, uint8_t(tag), buffer, size);
 	}
-
-	return FS_OK;
+	return attrSize;
 }
 
-int FileSystem::settime(const char* path, time_t mtime)
+int FileSystem::setxattr(const char* path, AttributeTag tag, const void* data, size_t size)
 {
-	TimeStamp t;
-	t = mtime;
-	return set_attr(path, AttributeTag::ModifiedTime, t);
-}
-
-int FileSystem::setcompression(FileHandle file, const Compression& compression)
-{
-	GET_FD()
-
-	if(compression != fd->compression) {
-		fd->compression = compression;
-		fd->dirty += AttributeTag::Compression;
+	if(data == nullptr) {
+		// Cannot delete standard attributes
+		if(tag < AttributeTag::UserStart) {
+			return Error::NotSupported;
+		}
+		int err = lfs_removeattr(&lfs, path, uint8_t(tag));
+		return Error::fromSystem(err);
 	}
 
-	return FS_OK;
+	auto attrSize = getAttributeSize(tag);
+	if(size < attrSize) {
+		return Error::BadParam;
+	}
+	FS_CHECK_PATH(path);
+	int err = lfs_setattr(&lfs, path ?: "", uint8_t(tag), data, size);
+	return Error::fromSystem(err);
+}
+
+int FileSystem::getxattr(const char* path, AttributeTag tag, void* buffer, size_t size)
+{
+	auto attrSize = getAttributeSize(tag);
+	if(size < attrSize) {
+		return attrSize;
+	}
+	FS_CHECK_PATH(path);
+	int res = lfs_getattr(&lfs, path ?: "", uint8_t(tag), buffer, size);
+	return Error::fromSystem(res);
 }
 
 int FileSystem::opendir(const char* path, DirHandle& dir)
