@@ -8,16 +8,16 @@
 
 #pragma once
 
-#include <IFS/IFileSystem.h>
+#include <IFS/FileSystem.h>
 
 namespace IFS
 {
 /**
  * @brief Create a LittleFS filesystem
  * @param partition
- * @retval IFileSystem* constructed filesystem object
+ * @retval FileSystem* constructed filesystem object
  */
-IFileSystem* createLfsFilesystem(Storage::Partition partition);
+FileSystem* createLfsFilesystem(Storage::Partition partition);
 
 } // namespace IFS
 
