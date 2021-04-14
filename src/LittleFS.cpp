@@ -26,9 +26,10 @@
 
 namespace IFS
 {
-IFileSystem* createLfsFilesystem(Storage::Partition partition)
+FileSystem* createLfsFilesystem(Storage::Partition partition)
 {
-	return new LittleFS::FileSystem(partition);
+	auto fs = new LittleFS::FileSystem(partition);
+	return FileSystem::cast(fs);
 }
 
 } // namespace IFS
