@@ -571,6 +571,9 @@ int FileSystem::mkdir(const char* path)
 		mtime = fsGetTimeUTC();
 		set_attr(path, AttributeTag::ModifiedTime, mtime);
 	}
+	if(err == LFS_ERR_EXIST) {
+		return FS_OK;
+	}
 	return Error::fromSystem(err);
 }
 
