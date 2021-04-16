@@ -23,11 +23,6 @@
 #include "include/LittleFS/Error.h"
 #include <IFS/Util.h>
 
-namespace
-{
-#include "debug.h"
-}
-
 namespace IFS
 {
 namespace LittleFS
@@ -542,8 +537,6 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 	if(err < 0) {
 		return Error::fromSystem(err);
 	}
-
-	debug_e("DIR %s: %u, %u, %s", info.name, info.type, info.size, dir_str(d->dir).c_str());
 
 	stat.fs = this;
 	stat.id = d->dir.id - 1;
