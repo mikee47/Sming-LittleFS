@@ -30,6 +30,8 @@ namespace
 
 namespace IFS
 {
+namespace LittleFS
+{
 /**
  * @brief LittleFS directory object
  */
@@ -37,8 +39,6 @@ struct FileDir {
 	lfs_dir_t dir;
 };
 
-namespace LittleFS
-{
 namespace
 {
 void fillStat(Stat& stat, const lfs_info& info)
@@ -506,26 +506,22 @@ int FileSystem::opendir(const char* path, DirHandle& dir)
 	}
 	lfs_dir_seek(&lfs, &d->dir, 2);
 
-	dir = d;
+	dir = DirHandle(d);
 	return FS_OK;
 }
 
 int FileSystem::rewinddir(DirHandle dir)
 {
-	if(dir == nullptr) {
-		return Error::BadParam;
-	}
+	GET_FILEDIR()
 
 	// Skip "." and ".." entries for consistency with other filesystems
-	int err = lfs_dir_seek(&lfs, &dir->dir, 2);
+	int err = lfs_dir_seek(&lfs, &d->dir, 2);
 	return Error::fromSystem(err);
 }
 
 int FileSystem::readdir(DirHandle dir, Stat& stat)
 {
-	if(dir == nullptr) {
-		return Error::BadParam;
-	}
+	GET_FILEDIR()
 
 	stat = Stat{};
 	StatAttr sa(stat);
@@ -533,7 +529,7 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 		sa.attrs, sa.count
 	};
 	struct lfs_info info;
-	int err = lfs_dir_readcfg(&lfs, &dir->dir, &info, &cfg);
+	int err = lfs_dir_readcfg(&lfs, &d->dir, &info, &cfg);
 	if(err == 0) {
 		return Error::NoMoreFiles;
 	}
@@ -541,10 +537,10 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 		return Error::fromSystem(err);
 	}
 
-	debug_e("DIR %s: %u, %u, %s", info.name, info.type, info.size, dir_str(dir->dir).c_str());
+	debug_e("DIR %s: %u, %u, %s", info.name, info.type, info.size, dir_str(d->dir).c_str());
 
 	stat.fs = this;
-	stat.id = dir->dir.id - 1;
+	stat.id = d->dir.id - 1;
 	if(stat.compression.type != Compression::Type::None) {
 		stat.attr += FileAttribute::Compressed;
 	}
@@ -554,12 +550,10 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 
 int FileSystem::closedir(DirHandle dir)
 {
-	if(dir == nullptr) {
-		return Error::BadParam;
-	}
+	GET_FILEDIR()
 
-	int err = lfs_dir_close(&lfs, &dir->dir);
-	delete dir;
+	int err = lfs_dir_close(&lfs, &d->dir);
+	delete d;
 	return Error::fromSystem(err);
 }
 
