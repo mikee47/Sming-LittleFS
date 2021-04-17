@@ -189,6 +189,12 @@ int FileSystem::getinfo(Info& info)
 	return FS_OK;
 }
 
+int FileSystem::getPerfStat(PerfStat& perfStat)
+{
+	perfStat = this->perfStat;
+	return FS_OK;
+}
+
 String FileSystem::getErrorString(int err)
 {
 	if(Error::isSystem(err)) {

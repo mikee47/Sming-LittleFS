@@ -120,6 +120,7 @@ public:
 
 	int mount() override;
 	int getinfo(Info& info) override;
+	int getPerfStat(PerfStat& perfStat);
 	String getErrorString(int err) override;
 	int opendir(const char* path, DirHandle& dir) override;
 	int readdir(DirHandle dir, Stat& stat) override;
@@ -197,6 +198,7 @@ private:
 
 	static int f_read(const struct lfs_config* c, lfs_block_t block, lfs_off_t off, void* buffer, lfs_size_t size)
 	{
+		++perfStat.readCount;
 		auto part = static_cast<Storage::Partition*>(c->context);
 		uint32_t addr = (block * LFS_BLOCK_SIZE) + off;
 		return part && part->read(addr, buffer, size) ? FS_OK : Error::ReadFailure;
@@ -204,6 +206,7 @@ private:
 
 	static int f_prog(const struct lfs_config* c, lfs_block_t block, lfs_off_t off, const void* buffer, lfs_size_t size)
 	{
+		++perfStat.writeCount;
 		auto part = static_cast<Storage::Partition*>(c->context);
 		uint32_t addr = (block * LFS_BLOCK_SIZE) + off;
 		return part && part->write(addr, buffer, size) ? FS_OK : Error::WriteFailure;
@@ -211,6 +214,7 @@ private:
 
 	static int f_erase(const struct lfs_config* c, lfs_block_t block)
 	{
+		++perfStat.eraseCount;
 		auto part = static_cast<Storage::Partition*>(c->context);
 		uint32_t addr = block * LFS_BLOCK_SIZE;
 		size_t size = LFS_BLOCK_SIZE;
@@ -224,6 +228,7 @@ private:
 	}
 
 	Storage::Partition partition;
+	PerfStat perfStat;
 	uint8_t readBuffer[LFS_CACHE_SIZE];
 	uint8_t progBuffer[LFS_CACHE_SIZE];
 	uint8_t lookaheadBuffer[LFS_LOOKAHEAD_SIZE];
