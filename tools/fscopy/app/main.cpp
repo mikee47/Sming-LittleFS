@@ -11,7 +11,11 @@ bool copyFiles(IFS::FileSystem& srcfs, IFS::FileSystem& dstfs, const String& pat
 		return false;
 	}
 
-	Vector<String> directories;
+	struct Dir {
+		String path;
+		IFS::TimeStamp mtime;
+	};
+	Vector<Dir> directories;
 
 	while(dir.next()) {
 		auto& stat = dir.stat();
@@ -22,7 +26,7 @@ bool copyFiles(IFS::FileSystem& srcfs, IFS::FileSystem& dstfs, const String& pat
 		}
 		filename += stat.name;
 		if(stat.isDir()) {
-			directories.add(filename);
+			directories.add(Dir{filename, stat.mtime});
 			continue;
 		}
 		IFS::File src(&srcfs);
@@ -61,13 +65,18 @@ bool copyFiles(IFS::FileSystem& srcfs, IFS::FileSystem& dstfs, const String& pat
 	}
 	dir.close();
 
-	for(auto& dirname : directories) {
-		int err = dstfs.mkdir(dirname);
+	auto time = IFS::fsGetTimeUTC();
+
+	for(auto& dir : directories) {
+		int err = dstfs.mkdir(dir.path);
 		if(err < 0) {
-			m_printf("mkdir('%s') failed: %s\r\n", dirname.c_str(), dstfs.getErrorString(err).c_str());
+			m_printf("mkdir('%s') failed: %s\r\n", dir.path.c_str(), dstfs.getErrorString(err).c_str());
 			return false;
 		}
-		if(!copyFiles(srcfs, dstfs, dirname)) {
+		if(dir.mtime != time) {
+			dstfs.settime(dir.path, dir.mtime);
+		}
+		if(!copyFiles(srcfs, dstfs, dir.path)) {
 			return false;
 		}
 	}
