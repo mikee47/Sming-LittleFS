@@ -4,9 +4,25 @@
 #include <hostlib/CommandLine.h>
 #include <memory>
 
-bool copyFiles(IFS::FileSystem& srcfs, IFS::FileSystem& dstfs, const String& path)
+namespace
 {
-	IFS::Directory dir(&srcfs);
+IFS::FileSystem* srcfs;
+IFS::FileSystem* dstfs;
+
+bool error(const String& errstr, const char* operation, const String& arg)
+{
+	m_printf("%s('%s') failed: %s\r\n", operation, arg.c_str(), errstr.c_str());
+	return false;
+}
+
+bool error(IFS::FsBase& obj, const char* operation, const String& arg)
+{
+	return error(obj.getLastErrorString(), operation, arg);
+}
+
+bool copyFiles(const String& path)
+{
+	IFS::Directory dir(srcfs);
 	if(!dir.open(path)) {
 		return false;
 	}
@@ -26,41 +42,36 @@ bool copyFiles(IFS::FileSystem& srcfs, IFS::FileSystem& dstfs, const String& pat
 		}
 		filename += stat.name;
 		if(stat.isDir()) {
-			directories.add(Dir{filename, stat.mtime});
+			if(!stat.attr[FileAttribute::MountPoint]) {
+				directories.add(Dir{filename, stat.mtime});
+			}
 			continue;
 		}
-		IFS::File src(&srcfs);
+		IFS::File src(srcfs);
 		if(!src.open(filename)) {
-			m_printf("open('%s') failed: %s\r\n", filename.c_str(), src.getLastErrorString().c_str());
-			return false;
+			return error(src, "open", filename);
 		}
-		IFS::File dst(&dstfs);
+		IFS::File dst(dstfs);
 		if(!dst.open(filename, File::CreateNewAlways | File::WriteOnly)) {
-			m_printf("create('%s') failed: %s\r\n", filename.c_str(), dst.getLastErrorString().c_str());
-			return false;
+			return error(dst, "create", filename);
 		}
 		src.readContent([&dst](const char* buffer, size_t size) -> int { return dst.write(buffer, size); });
 		int err = dst.getLastError();
 		if(err < 0) {
-			m_printf("Copy write '%s' failed: %s\r\n", filename.c_str(), dst.getLastErrorString().c_str());
-			return false;
+			return error(dst, "write", filename);
 		}
 		err = src.getLastError();
 		if(err < 0) {
-			m_printf("Copy read '%s' failed: %s\r\n", filename.c_str(), src.getLastErrorString().c_str());
-			return false;
+			return error(src, "read", filename);
 		}
 		if(!dst.settime(stat.mtime)) {
-			m_printf("settime('%s') failed: %s", filename.c_str(), dst.getLastErrorString().c_str());
-			return false;
+			return error(dst, "settime", filename);
 		}
 		if(!dst.setcompression(stat.compression)) {
-			m_printf("setcompression('%s') failed: %s\r\n", filename.c_str(), dst.getLastErrorString().c_str());
-			return false;
+			return error(dst, "setcompression", filename);
 		}
 		if(!dst.setacl(stat.acl)) {
-			m_printf("setacl('%s') failed: %s\r\n", filename.c_str(), dst.getLastErrorString().c_str());
-			return false;
+			return error(dst, "setacl", filename);
 		}
 	}
 	dir.close();
@@ -68,15 +79,14 @@ bool copyFiles(IFS::FileSystem& srcfs, IFS::FileSystem& dstfs, const String& pat
 	auto time = IFS::fsGetTimeUTC();
 
 	for(auto& dir : directories) {
-		int err = dstfs.mkdir(dir.path);
+		int err = dstfs->mkdir(dir.path);
 		if(err < 0) {
-			m_printf("mkdir('%s') failed: %s\r\n", dir.path.c_str(), dstfs.getErrorString(err).c_str());
-			return false;
+			return error(dstfs->getErrorString(err), "mkdir", dir.path);
 		}
 		if(dir.mtime != time) {
-			dstfs.settime(dir.path, dir.mtime);
+			dstfs->settime(dir.path, dir.mtime);
 		}
-		if(!copyFiles(srcfs, dstfs, dir.path)) {
+		if(!copyFiles(dir.path)) {
 			return false;
 		}
 	}
@@ -91,51 +101,45 @@ bool fscopy(const char* srcFile, const char* dstFile, size_t dstSize)
 	// Source
 	auto file = hostfs.open(srcFile, File::ReadOnly);
 	if(file < 0) {
-		m_printf("open('%s') failed: %s\r\n", srcFile, hostfs.getErrorString(file).c_str());
-		return false;
+		return error(hostfs.getErrorString(file), "open", srcFile);
 	}
 	Storage::FileDevice srcDevice("SRC", hostfs, file);
 	auto part = srcDevice.createPartition("src", Storage::Partition::SubType::Data::fwfs, 0, hostfs.getSize(file),
 										  Storage::Partition::Flag::readOnly);
-	auto srcfs = IFS::createFirmwareFilesystem(part);
+	srcfs = IFS::createFirmwareFilesystem(part);
 	srcfs->mount();
 
 	// Destination
 	file = hostfs.open(dstFile, File::CreateNewAlways | File::ReadWrite);
 	if(file < 0) {
-		m_printf("open('%s') failed: %s\r\n", dstFile, hostfs.getErrorString(file).c_str());
-		delete srcfs;
-		return false;
+		return error(hostfs.getErrorString(file), "open", dstFile);
 	}
-
-	// Fill destination with FF
-	uint8_t buffer[512];
-	memset(buffer, 0xff, sizeof(buffer));
-	for(size_t off = 0; off < dstSize; off += sizeof(buffer)) {
-		hostfs.write(file, buffer, sizeof(buffer));
-	}
-	Storage::FileDevice dstDevice("DST", hostfs, file);
+	Storage::FileDevice dstDevice("DST", hostfs, file, dstSize);
+	dstDevice.erase_range(0, dstSize);
 	part = dstDevice.createPartition("dst", Storage::Partition::SubType::Data::littlefs, 0, dstSize);
-	auto dstfs = IFS::createLfsFilesystem(part);
+	dstfs = IFS::createLfsFilesystem(part);
 	dstfs->mount();
 
-	//
-	bool res = copyFiles(*IFS::FileSystem::cast(srcfs), *IFS::FileSystem::cast(dstfs), nullptr);
+	IFS::Profiler profiler;
+	dstfs->setProfiler(&profiler);
+	bool res = copyFiles(nullptr);
+	dstfs->setProfiler(nullptr);
 
-	IFS::FileSystem::Info info;
-	dstfs->getinfo(info);
-	auto used = info.volumeSize - info.freeSpace;
+	IFS::FileSystem::Info srcinfo;
+	srcfs->getinfo(srcinfo);
+	IFS::FileSystem::Info dstinfo;
+	dstfs->getinfo(dstinfo);
 
-	auto sizeToMb = [](size_t size) { return String(size / 1024.0 / 1024.0) + "MB"; };
+	auto kb = [](size_t size) { return (size + 1023) / 1024; };
 
-	m_printf("Used space: 0x%08x (%s), Free space: 0x%08x (%s)\r\n", used, sizeToMb(used).c_str(), info.freeSpace,
-			 sizeToMb(info.freeSpace).c_str());
-
-	delete dstfs;
-	delete srcfs;
+	m_printf("Source %s size: %u KB; Output %s used: %u KB, free: %u KB\r\n", toString(srcinfo.type).c_str(),
+			 kb(srcinfo.used()), toString(dstinfo.type).c_str(), kb(dstinfo.used()), kb(dstinfo.freeSpace));
+	m_printf("Perf stats: %s\r\n", profiler.toString().c_str());
 
 	return res;
 }
+
+}; // namespace
 
 void init()
 {
@@ -148,7 +152,10 @@ void init()
 		m_printf("Usage: fscopy <source file> <dest file> <dest size>\r\n");
 	} else {
 		auto size = strtoul(parameters[2].text, nullptr, 0);
-		if(!fscopy(parameters[0].text, parameters[1].text, size)) {
+		auto res = fscopy(parameters[0].text, parameters[1].text, size);
+		delete dstfs;
+		delete srcfs;
+		if(!res) {
 			abort();
 		}
 	}

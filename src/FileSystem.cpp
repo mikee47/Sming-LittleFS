@@ -107,7 +107,7 @@ int FileSystem::mount()
 		return Error::BadPartition;
 	}
 
-	config.context = &partition;
+	config.context = this;
 	config.block_count = partition.size() / LFS_BLOCK_SIZE;
 
 	auto res = tryMount();
@@ -181,6 +181,12 @@ int FileSystem::getinfo(Info& info)
 		info.freeSpace = (config.block_count - usedBlocks) * LFS_BLOCK_SIZE;
 	}
 
+	return FS_OK;
+}
+
+int FileSystem::setProfiler(IProfiler* profiler)
+{
+	this->profiler = profiler;
 	return FS_OK;
 }
 
