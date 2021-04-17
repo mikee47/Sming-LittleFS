@@ -39,6 +39,35 @@ struct FileDir {
 
 namespace LittleFS
 {
+namespace
+{
+void fillStat(Stat& stat, const lfs_info& info)
+{
+	auto name = info.name;
+	if(*name == '/') {
+		++name;
+	}
+	stat.name.copy(name);
+	stat.size = info.size;
+
+	if(info.type == LFS_TYPE_DIR) {
+		stat.attr += FileAttribute::Directory;
+	}
+}
+
+void fillStat(Stat& stat, const FileMeta& meta)
+{
+	stat.mtime = meta.mtime;
+	stat.attr += meta.attr;
+	stat.compression = meta.compression;
+	if(meta.compression.type != Compression::Type::None) {
+		stat.attr += FileAttribute::Compressed;
+	}
+	stat.acl = meta.acl;
+}
+
+} // namespace
+
 /**
  * @brief map IFS OpenFlags to LFS equivalents
  * @param flags
@@ -367,24 +396,10 @@ int FileSystem::stat(const char* path, Stat* stat)
 	}
 
 	*stat = Stat{};
-	meta.fillStat(*stat);
+	stat->fs = this;
+	fillStat(*stat, meta);
 	fillStat(*stat, info);
 	return FS_OK;
-}
-
-void FileSystem::fillStat(Stat& stat, const lfs_info& info)
-{
-	stat.fs = this;
-	auto name = info.name;
-	if(*name == '/') {
-		++name;
-	}
-	stat.name.copy(name);
-	stat.size = info.size;
-
-	if(info.type == LFS_TYPE_DIR) {
-		stat.attr += FileAttribute::Directory;
-	}
 }
 
 int FileSystem::fstat(FileHandle file, Stat* stat)
@@ -392,21 +407,19 @@ int FileSystem::fstat(FileHandle file, Stat* stat)
 	GET_FD()
 
 	auto size = lfs_file_size(&lfs, &fd->file);
-	if(size < 0) {
+	if(stat == nullptr || size < 0) {
 		return Error::fromSystem(size);
 	}
 
-	if(stat != nullptr) {
-		*stat = Stat{};
-		stat->fs = this;
-		/*
-		 * TODO: Update littlefs library so we can query name of open file.
+	*stat = Stat{};
+	stat->fs = this;
+	stat->id = fd->file.id;
+	/*
+		 * TODO: Update littlefs library so we can query name of open file ?
 		 */
-		stat->name.copy(fd->name.c_str());
-		stat->size = size;
-		fd->meta.fillStat(*stat);
-		stat->id = fd->file.id;
-	}
+	stat->name.copy(fd->name.c_str());
+	stat->size = size;
+	fillStat(*stat, fd->meta);
 
 	return FS_OK;
 }
@@ -495,9 +508,10 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 	debug_e("DIR %s: %u, %u, %s", info.name, info.type, info.size, dir_str(dir->dir).c_str());
 
 	stat = Stat{};
-	meta.fillStat(stat);
-	fillStat(stat, info);
+	stat.fs = this;
 	stat.id = dir->dir.id - 1;
+	fillStat(stat, meta);
+	fillStat(stat, info);
 	return FS_OK;
 }
 

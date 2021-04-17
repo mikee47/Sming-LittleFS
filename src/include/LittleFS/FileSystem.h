@@ -62,6 +62,20 @@ template <typename T> constexpr lfs_attr makeAttr(AttributeTag tag, T& value)
 	return lfs_attr{uint8_t(tag), &value, sizeof(value)};
 }
 
+struct FileMeta {
+	TimeStamp mtime;
+	FileAttributes attr;
+	ACL acl;
+	Compression compression;
+	static constexpr size_t attr_count{4};
+	struct lfs_attr attrs[attr_count]{
+		makeAttr(AttributeTag::ModifiedTime, mtime),
+		makeAttr(AttributeTag::FileAttributes, attr),
+		makeAttr(AttributeTag::Acl, acl),
+		makeAttr(AttributeTag::Compression, compression),
+	};
+};
+
 /**
  * Wraps LittleFS
  */
@@ -113,32 +127,6 @@ private:
 	}
 
 	int tryMount();
-	void fillStat(Stat& stat, const lfs_info& info);
-
-	struct FileMeta {
-		TimeStamp mtime;
-		FileAttributes attr;
-		ACL acl;
-		Compression compression;
-		static constexpr size_t attr_count{4};
-		struct lfs_attr attrs[attr_count]{
-			makeAttr(AttributeTag::ModifiedTime, mtime),
-			makeAttr(AttributeTag::FileAttributes, attr),
-			makeAttr(AttributeTag::Acl, acl),
-			makeAttr(AttributeTag::Compression, compression),
-		};
-
-		void fillStat(Stat& stat) const
-		{
-			stat.mtime = mtime;
-			stat.attr = attr;
-			stat.compression = compression;
-			if(compression.type != Compression::Type::None) {
-				stat.attr += FileAttribute::Compressed;
-			}
-			stat.acl = acl;
-		}
-	};
 
 	/**
 	 * @brief Details for an open file
