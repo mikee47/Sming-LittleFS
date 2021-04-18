@@ -29,7 +29,6 @@ namespace IFS
  * @brief LittleFS directory object
  */
 struct FileDir {
-	CString path;
 	lfs_dir_t dir;
 };
 
@@ -337,37 +336,30 @@ int FileSystem::lseek(FileHandle file, int offset, SeekOrigin origin)
 
 int FileSystem::stat(const char* path, Stat* stat)
 {
-	lfs_info info;
-	int err = lfs_stat(&lfs, path ?: "", &info);
-	if(err < 0) {
-		return Error::fromSystem(err);
-	}
-
 	if(stat == nullptr) {
-		return FS_OK;
+		struct lfs_info info;
+		int err = lfs_stat(&lfs, path ?: "", &info);
+		return Error::fromSystem(err);
 	}
 
-	int res = fillStat(path, info, *stat);
-
-	if(res < 0 || info.type != LFS_TYPE_DIR) {
-		return res;
-	}
-
-	lfs_dir_t dir{};
-	err = lfs_dir_open(&lfs, &dir, path);
+	FileMeta meta{};
+	struct lfs_stat_config cfg {
+		meta.attrs, meta.attr_count
+	};
+	struct lfs_info info;
+	int err = lfs_statcfg(&lfs, path ?: "", &info, &cfg);
 	if(err < 0) {
 		return Error::fromSystem(err);
 	}
 
-	stat->id = dir.id;
-	lfs_dir_close(&lfs, &dir);
-
+	*stat = Stat{};
+	meta.fillStat(*stat);
+	fillStat(*stat, info);
 	return FS_OK;
 }
 
-int FileSystem::fillStat(const char* path, lfs_info& info, Stat& stat)
+void FileSystem::fillStat(Stat& stat, const lfs_info& info)
 {
-	stat = Stat{};
 	stat.fs = this;
 	auto name = info.name;
 	if(*name == '/') {
@@ -378,19 +370,7 @@ int FileSystem::fillStat(const char* path, lfs_info& info, Stat& stat)
 
 	if(info.type == LFS_TYPE_DIR) {
 		stat.attr += FileAttribute::Directory;
-		return FS_OK;
 	}
-
-	FileDescriptor fd{};
-	int err = lfs_file_opencfg(&lfs, &fd.file, path, LFS_O_RDONLY, &fd.config);
-	if(err < 0) {
-		return Error::fromSystem(err);
-	}
-	fd.meta.fillStat(stat);
-	stat.id = fd.file.id;
-
-	lfs_file_close(&lfs, &fd.file);
-	return FS_OK;
 }
 
 int FileSystem::fstat(FileHandle file, Stat* stat)
@@ -450,7 +430,7 @@ int FileSystem::opendir(const char* path, DirHandle& dir)
 {
 	FS_CHECK_PATH(path);
 
-	auto d = new FileDir{path};
+	auto d = new FileDir{};
 	if(d == nullptr) {
 		return Error::NoMem;
 	}
@@ -485,8 +465,12 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 		return Error::BadParam;
 	}
 
-	lfs_info info;
-	int err = lfs_dir_read(&lfs, &dir->dir, &info);
+	FileMeta meta{};
+	struct lfs_stat_config cfg {
+		meta.attrs, meta.attr_count
+	};
+	struct lfs_info info;
+	int err = lfs_dir_readcfg(&lfs, &dir->dir, &info, &cfg);
 	if(err == 0) {
 		return Error::NoMoreFiles;
 	}
@@ -494,18 +478,11 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 		return Error::fromSystem(err);
 	}
 
-	String path = dir->path.c_str();
-	path += '/';
-	path += info.name;
-
-	/*
-	 * TODO: Update littlefs library so we can fetch attributes
-	 * more efficiently, without having to open the file using the path.
-	 */
-
-	int res = fillStat(path.c_str(), info, stat);
+	stat = Stat{};
+	meta.fillStat(stat);
+	fillStat(stat, info);
 	stat.id = dir->dir.id - 1;
-	return res;
+	return FS_OK;
 }
 
 int FileSystem::closedir(DirHandle dir)

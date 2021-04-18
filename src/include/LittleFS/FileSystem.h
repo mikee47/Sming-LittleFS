@@ -112,7 +112,7 @@ private:
 	}
 
 	int tryMount();
-	int fillStat(const char* path, lfs_info& info, Stat& stat);
+	void fillStat(Stat& stat, const lfs_info& info);
 
 	struct FileMeta {
 		TimeStamp mtime;
