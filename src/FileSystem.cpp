@@ -176,15 +176,6 @@ String FileSystem::getErrorString(int err)
 	}
 }
 
-FileHandle FileSystem::fopen(const Stat& stat, OpenFlags flags)
-{
-	/*
-	 * TODO: Requires littlefs library update to support opening a file by it's ID.
-	 */
-	debug_w("Warning: LittleFS doesn't currently support opening by stat/ID");
-	return Error::NotImplemented;
-}
-
 FileHandle FileSystem::open(const char* path, OpenFlags flags)
 {
 	FS_CHECK_PATH(path);
