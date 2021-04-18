@@ -50,17 +50,6 @@ void fillStat(Stat& stat, const lfs_info& info)
 	}
 }
 
-void fillStat(Stat& stat, const FileMeta& meta)
-{
-	stat.mtime = meta.mtime;
-	stat.attr += meta.attr;
-	stat.compression = meta.compression;
-	if(meta.compression.type != Compression::Type::None) {
-		stat.attr += FileAttribute::Compressed;
-	}
-	stat.acl = meta.acl;
-}
-
 } // namespace
 
 /**
@@ -251,9 +240,10 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 		return err;
 	}
 
-	get_attr(fd->file, AttributeTag::Acl, fd->meta.acl);
-	get_attr(fd->file, AttributeTag::Compression, fd->meta.compression);
-	get_attr(fd->file, AttributeTag::FileAttributes, fd->meta.attr);
+	get_attr(fd->file, AttributeTag::ModifiedTime, fd->mtime);
+	get_attr(fd->file, AttributeTag::Acl, fd->acl);
+	get_attr(fd->file, AttributeTag::Compression, fd->compression);
+	get_attr(fd->file, AttributeTag::FileAttributes, fd->attr);
 
 	// Copy name into descriptor
 	if(path != nullptr) {
@@ -311,18 +301,12 @@ int FileSystem::ftruncate(FileHandle file, size_t new_size)
 	return Error::fromSystem(res);
 }
 
-int FileSystem::flushMeta(FileDescriptor& fd)
+void FileSystem::flushMeta(FileDescriptor& fd)
 {
-	FileMetaAttr fma(fd.meta);
-	for(auto& attr : fma.attrs) {
-		auto a = AttributeTag(attr.type);
-		if(fd.dirty[a]) {
-			lfs_file_setattr(&lfs, &fd.file, attr.type, attr.buffer, attr.size);
-		}
-	}
-	fd.dirty.reset();
-
-	return FS_OK;
+	flush_attr(fd, AttributeTag::ModifiedTime, fd.mtime);
+	flush_attr(fd, AttributeTag::FileAttributes, fd.attr);
+	flush_attr(fd, AttributeTag::Compression, fd.compression);
+	flush_attr(fd, AttributeTag::Acl, fd.acl);
 }
 
 int FileSystem::flush(FileHandle file)
@@ -378,10 +362,10 @@ int FileSystem::stat(const char* path, Stat* stat)
 		return Error::fromSystem(err);
 	}
 
-	FileMeta meta{};
-	FileMetaAttr fma(meta);
+	*stat = Stat{};
+	StatAttr sa(*stat);
 	struct lfs_stat_config cfg {
-		fma.attrs, fma.count
+		sa.attrs, sa.count
 	};
 	struct lfs_info info;
 	int err = lfs_statcfg(&lfs, path ?: "", &info, &cfg);
@@ -389,9 +373,10 @@ int FileSystem::stat(const char* path, Stat* stat)
 		return Error::fromSystem(err);
 	}
 
-	*stat = Stat{};
 	stat->fs = this;
-	fillStat(*stat, meta);
+	if(stat->compression.type != Compression::Type::None) {
+		stat->attr += FileAttribute::Compressed;
+	}
 	fillStat(*stat, info);
 	return FS_OK;
 }
@@ -413,7 +398,10 @@ int FileSystem::fstat(FileHandle file, Stat* stat)
 	*/
 	stat->name.copy(fd->name.c_str());
 	stat->size = size;
-	fillStat(*stat, fd->meta);
+	stat->mtime = fd->mtime;
+	stat->attr = fd->attr;
+	stat->acl = fd->acl;
+	stat->compression = fd->compression;
 
 	return FS_OK;
 }
@@ -422,8 +410,8 @@ int FileSystem::setacl(FileHandle file, const ACL& acl)
 {
 	GET_FD()
 
-	if(acl != fd->meta.acl) {
-		fd->meta.acl = acl;
+	if(acl != fd->acl) {
+		fd->acl = acl;
 		fd->dirty += AttributeTag::Acl;
 	}
 
@@ -439,8 +427,8 @@ int FileSystem::settime(FileHandle file, time_t mtime)
 {
 	GET_FD()
 
-	if(mtime != fd->meta.mtime) {
-		fd->meta.mtime = mtime;
+	if(mtime != fd->mtime) {
+		fd->mtime = mtime;
 		fd->dirty += AttributeTag::ModifiedTime;
 	}
 
@@ -451,8 +439,8 @@ int FileSystem::setcompression(FileHandle file, const Compression& compression)
 {
 	GET_FD()
 
-	if(compression != fd->meta.compression) {
-		fd->meta.compression = compression;
+	if(compression != fd->compression) {
+		fd->compression = compression;
 		fd->dirty += AttributeTag::Compression;
 	}
 
@@ -498,10 +486,10 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 		return Error::BadParam;
 	}
 
-	FileMeta meta{};
-	FileMetaAttr fma(meta);
+	stat = Stat{};
+	StatAttr sa(stat);
 	struct lfs_stat_config cfg {
-		fma.attrs, fma.count
+		sa.attrs, sa.count
 	};
 	struct lfs_info info;
 	int err = lfs_dir_readcfg(&lfs, &dir->dir, &info, &cfg);
@@ -512,10 +500,11 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 		return Error::fromSystem(err);
 	}
 
-	stat = Stat{};
 	stat.fs = this;
 	stat.id = dir->dir.id - 1;
-	fillStat(stat, meta);
+	if(stat.compression.type != Compression::Type::None) {
+		stat.attr += FileAttribute::Compressed;
+	}
 	fillStat(stat, info);
 	return FS_OK;
 }
@@ -582,7 +571,7 @@ int FileSystem::fremove(FileHandle file)
 {
 	GET_FD()
 
-	if(fd->meta.attr[FileAttribute::ReadOnly]) {
+	if(fd->attr[FileAttribute::ReadOnly]) {
 		return Error::ReadOnly;
 	}
 

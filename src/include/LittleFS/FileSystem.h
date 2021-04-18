@@ -62,26 +62,36 @@ template <typename T> constexpr lfs_attr makeAttr(AttributeTag tag, T& value)
 	return lfs_attr{uint8_t(tag), &value, sizeof(value)};
 }
 
-struct FileMeta {
-	TimeStamp mtime;
-	FileAttributes attr;
-	ACL acl;
-	Compression compression;
-};
-
-struct FileMetaAttr {
+struct StatAttr {
 	static constexpr size_t count{4};
 	struct lfs_attr attrs[count];
 
-	FileMetaAttr(FileMeta& meta)
-		: attrs({
-			  makeAttr(AttributeTag::ModifiedTime, meta.mtime),
-			  makeAttr(AttributeTag::FileAttributes, meta.attr),
-			  makeAttr(AttributeTag::Acl, meta.acl),
-			  makeAttr(AttributeTag::Compression, meta.compression),
-		  })
+	StatAttr(Stat& stat)
+		: attrs{
+			  makeAttr(AttributeTag::ModifiedTime, stat.mtime),
+			  makeAttr(AttributeTag::FileAttributes, stat.attr),
+			  makeAttr(AttributeTag::Acl, stat.acl),
+			  makeAttr(AttributeTag::Compression, stat.compression),
+		  }
 	{
 	}
+};
+
+/**
+ * @brief Details for an open file
+ */
+struct FileDescriptor {
+	CString name;
+	lfs_file_t file{};
+	TimeStamp mtime{};
+	FileAttributes attr;
+	ACL acl{};
+	Compression compression{};
+	BitSet<uint8_t, AttributeTag> dirty;
+	uint8_t buffer[LFS_CACHE_SIZE];
+	struct lfs_file_config config {
+		buffer
+	};
 };
 
 /**
@@ -132,22 +142,7 @@ private:
 	}
 
 	int tryMount();
-
-	/**
-	 * @brief Details for an open file
-	 */
-	struct FileDescriptor {
-		CString name;
-		lfs_file_t file{};
-		FileMeta meta{};
-		BitSet<uint8_t, AttributeTag> dirty;
-		uint8_t buffer[LFS_CACHE_SIZE];
-		struct lfs_file_config config {
-			buffer
-		};
-	};
-
-	int flushMeta(FileDescriptor& fd);
+	void flushMeta(FileDescriptor& fd);
 
 	template <typename T> int get_attr(const char* path, AttributeTag tag, T& attr)
 	{
@@ -183,6 +178,14 @@ private:
 	{
 		int err = lfs_file_removeattr(&lfs, &file, uint8_t(tag));
 		return Error::fromSystem(err);
+	}
+
+	template <typename T> void flush_attr(FileDescriptor& fd, AttributeTag tag, const T& attr)
+	{
+		if(fd.dirty[tag]) {
+			fd.dirty -= tag;
+			set_attr(fd.file, tag, attr);
+		}
 	}
 
 	static int f_read(const struct lfs_config* c, lfs_block_t block, lfs_off_t off, void* buffer, lfs_size_t size)
