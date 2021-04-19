@@ -182,7 +182,7 @@ private:
 		return Error::fromSystem(err);
 	}
 
-	template <typename T> int remove_attr(lfs_file_t& file, AttributeTag tag)
+	int remove_attr(lfs_file_t& file, AttributeTag tag)
 	{
 		int err = lfs_file_removeattr(&lfs, &file, uint8_t(tag));
 		return Error::fromSystem(err);
@@ -190,8 +190,27 @@ private:
 
 	template <typename T> void flush_attr(FileDescriptor& fd, AttributeTag tag, const T& attr)
 	{
-		if(fd.dirty[tag]) {
-			fd.dirty -= tag;
+		if(!fd.dirty[tag]) {
+			return;
+		}
+
+		fd.dirty -= tag;
+
+		bool isDefault{false};
+
+		switch(tag) {
+		case AttributeTag::Compression:
+			isDefault = (fd.compression.type == Compression::Type::None);
+			break;
+		case AttributeTag::FileAttributes:
+			isDefault = fd.attr.none();
+			break;
+		default:; // That's all
+		}
+
+		if(isDefault) {
+			remove_attr(fd.file, tag);
+		} else {
 			set_attr(fd.file, tag, attr);
 		}
 	}
