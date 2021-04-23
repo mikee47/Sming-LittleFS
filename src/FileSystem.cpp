@@ -45,9 +45,8 @@ void fillStat(Stat& stat, const lfs_info& info)
 	stat.name.copy(name);
 	stat.size = info.size;
 
-	if(info.type == LFS_TYPE_DIR) {
-		stat.attr += FileAttribute::Directory;
-	}
+	stat.attr[FileAttribute::Directory] = (info.type == LFS_TYPE_DIR);
+	checkStat(stat);
 }
 
 } // namespace
@@ -363,7 +362,7 @@ int FileSystem::lseek(FileHandle file, int offset, SeekOrigin origin)
 int FileSystem::stat(const char* path, Stat* stat)
 {
 	if(stat == nullptr) {
-		struct lfs_info info;
+		struct lfs_info info{};
 		int err = lfs_stat(&lfs, path ?: "", &info);
 		return Error::fromSystem(err);
 	}
@@ -373,16 +372,13 @@ int FileSystem::stat(const char* path, Stat* stat)
 	struct lfs_stat_config cfg {
 		sa.attrs, sa.count
 	};
-	struct lfs_info info;
+	struct lfs_info info{};
 	int err = lfs_statcfg(&lfs, path ?: "", &info, &cfg);
 	if(err < 0) {
 		return Error::fromSystem(err);
 	}
 
 	stat->fs = this;
-	if(stat->compression.type != Compression::Type::None) {
-		stat->attr += FileAttribute::Compressed;
-	}
 	fillStat(*stat, info);
 	return FS_OK;
 }
@@ -408,6 +404,7 @@ int FileSystem::fstat(FileHandle file, Stat* stat)
 	stat->attr = fd->attr;
 	stat->acl = fd->acl;
 	stat->compression = fd->compression;
+	checkStat(*stat);
 
 	return FS_OK;
 }
@@ -535,7 +532,7 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 	struct lfs_stat_config cfg {
 		sa.attrs, sa.count
 	};
-	struct lfs_info info;
+	struct lfs_info info{};
 	int err = lfs_dir_readcfg(&lfs, &d->dir, &info, &cfg);
 	if(err == 0) {
 		return Error::NoMoreFiles;
@@ -546,9 +543,6 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 
 	stat.fs = this;
 	stat.id = d->dir.id - 1;
-	if(stat.compression.type != Compression::Type::None) {
-		stat.attr += FileAttribute::Compressed;
-	}
 	fillStat(stat, info);
 	return FS_OK;
 }
