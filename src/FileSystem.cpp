@@ -82,7 +82,13 @@ OpenFlags mapFileOpenFlags(OpenFlags flags, lfs_open_flags& lfsflags)
 	return flags;
 }
 
+#define CHECK_MOUNTED()                                                                                                \
+	if(!mounted) {                                                                                                     \
+		return Error::NotMounted;                                                                                      \
+	}
+
 #define GET_FD()                                                                                                       \
+	CHECK_MOUNTED()                                                                                                    \
 	if(file < LFS_HANDLE_MIN || file > LFS_HANDLE_MAX) {                                                               \
 		return Error::InvalidHandle;                                                                                   \
 	}                                                                                                                  \
@@ -93,7 +99,9 @@ OpenFlags mapFileOpenFlags(OpenFlags flags, lfs_open_flags& lfsflags)
 
 FileSystem::~FileSystem()
 {
-	lfs_unmount(&lfs);
+	if(mounted) {
+		lfs_unmount(&lfs);
+	}
 }
 
 int FileSystem::mount()
@@ -200,15 +208,13 @@ String FileSystem::getErrorString(int err)
 
 FileHandle FileSystem::open(const char* path, OpenFlags flags)
 {
-	FS_CHECK_PATH(path);
-	if(path == nullptr) {
-		return Error::BadParam;
-	}
+	CHECK_MOUNTED()
+	FS_CHECK_PATH(path)
 
 	// If file is marked read-only, fail write requests
 	if(flags[OpenFlag::Write]) {
 		FileAttributes attr;
-		get_attr(path, AttributeTag::FileAttributes, attr);
+		get_attr(path ?: "", AttributeTag::FileAttributes, attr);
 		if(attr[FileAttribute::ReadOnly]) {
 			return Error::ReadOnly;
 		}
@@ -237,7 +243,7 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 	}
 
 	auto& fd = fileDescriptors[file - LFS_HANDLE_MIN];
-	int err = lfs_file_opencfg(&lfs, &fd->file, path, oflags, &fd->config);
+	int err = lfs_file_opencfg(&lfs, &fd->file, path ?: "", oflags, &fd->config);
 	if(err < 0) {
 		err = Error::fromSystem(err);
 		debug_ifserr(err, "open('%s')", path);
@@ -361,6 +367,9 @@ int FileSystem::lseek(FileHandle file, int offset, SeekOrigin origin)
 
 int FileSystem::stat(const char* path, Stat* stat)
 {
+	CHECK_MOUNTED()
+	FS_CHECK_PATH(path);
+
 	if(stat == nullptr) {
 		struct lfs_info info{};
 		int err = lfs_stat(&lfs, path ?: "", &info);
@@ -456,12 +465,15 @@ int FileSystem::fgetxattr(FileHandle file, AttributeTag tag, void* buffer, size_
 
 int FileSystem::setxattr(const char* path, AttributeTag tag, const void* data, size_t size)
 {
+	CHECK_MOUNTED()
+	FS_CHECK_PATH(path)
+
 	if(data == nullptr) {
 		// Cannot delete standard attributes
 		if(tag < AttributeTag::User) {
 			return Error::NotSupported;
 		}
-		int err = lfs_removeattr(&lfs, path, uint8_t(tag));
+		int err = lfs_removeattr(&lfs, path ?: "", uint8_t(tag));
 		return Error::fromSystem(err);
 	}
 
@@ -472,13 +484,15 @@ int FileSystem::setxattr(const char* path, AttributeTag tag, const void* data, s
 	} else if(unsigned(tag) > 255) {
 		return Error::BadParam;
 	}
-	FS_CHECK_PATH(path);
 	int err = lfs_setattr(&lfs, path ?: "", uint8_t(tag), data, size);
 	return Error::fromSystem(err);
 }
 
 int FileSystem::getxattr(const char* path, AttributeTag tag, void* buffer, size_t size)
 {
+	CHECK_MOUNTED()
+	FS_CHECK_PATH(path)
+
 	if(tag < AttributeTag::User) {
 		auto attrSize = getAttributeSize(tag);
 		if(size < attrSize) {
@@ -487,14 +501,15 @@ int FileSystem::getxattr(const char* path, AttributeTag tag, void* buffer, size_
 	} else if(unsigned(tag) > 255) {
 		return Error::BadParam;
 	}
-	FS_CHECK_PATH(path);
+
 	int res = lfs_getattr(&lfs, path ?: "", uint8_t(tag), buffer, size);
 	return Error::fromSystem(res);
 }
 
 int FileSystem::opendir(const char* path, DirHandle& dir)
 {
-	FS_CHECK_PATH(path);
+	CHECK_MOUNTED()
+	FS_CHECK_PATH(path)
 
 	auto d = new FileDir{};
 	if(d == nullptr) {
@@ -558,6 +573,11 @@ int FileSystem::closedir(DirHandle dir)
 
 int FileSystem::mkdir(const char* path)
 {
+	CHECK_MOUNTED()
+	if(isRootPath(path)) {
+		return Error::BadParam;
+	}
+
 	int err = lfs_mkdir(&lfs, path);
 	if(err == 0) {
 		TimeStamp mtime;
@@ -572,9 +592,8 @@ int FileSystem::mkdir(const char* path)
 
 int FileSystem::rename(const char* oldpath, const char* newpath)
 {
-	FS_CHECK_PATH(oldpath);
-	FS_CHECK_PATH(newpath);
-	if(oldpath == nullptr || newpath == nullptr) {
+	CHECK_MOUNTED()
+	if(isRootPath(oldpath) || isRootPath(newpath)) {
 		return Error::BadParam;
 	}
 
@@ -584,8 +603,8 @@ int FileSystem::rename(const char* oldpath, const char* newpath)
 
 int FileSystem::remove(const char* path)
 {
-	FS_CHECK_PATH(path);
-	if(path == nullptr) {
+	CHECK_MOUNTED()
+	if(isRootPath(path)) {
 		return Error::BadParam;
 	}
 
