@@ -252,9 +252,6 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 	}
 
 	get_attr(fd->file, AttributeTag::ModifiedTime, fd->mtime);
-	get_attr(fd->file, AttributeTag::Acl, fd->acl);
-	get_attr(fd->file, AttributeTag::Compression, fd->compression);
-	get_attr(fd->file, AttributeTag::FileAttributes, fd->attr);
 
 	// Copy name into descriptor
 	if(path != nullptr) {
@@ -314,10 +311,10 @@ int FileSystem::ftruncate(FileHandle file, size_t new_size)
 
 void FileSystem::flushMeta(FileDescriptor& fd)
 {
-	flush_attr(fd, AttributeTag::ModifiedTime, fd.mtime);
-	flush_attr(fd, AttributeTag::FileAttributes, fd.attr);
-	flush_attr(fd, AttributeTag::Compression, fd.compression);
-	flush_attr(fd, AttributeTag::Acl, fd.acl);
+	if(fd.flags[FileDescriptor::Flag::TimeChanged]) {
+		fd.flags -= FileDescriptor::Flag::TimeChanged;
+		set_attr(fd.file, AttributeTag::ModifiedTime, fd.mtime);
+	}
 }
 
 int FileSystem::flush(FileHandle file)
@@ -406,15 +403,30 @@ int FileSystem::fstat(FileHandle file, Stat* stat)
 	*stat = Stat{};
 	stat->fs = this;
 	stat->id = fd->file.id;
-	/*
-	* TODO: Update littlefs library so we can query name of open file ?
-	*/
 	stat->name.copy(fd->name.c_str());
 	stat->size = size;
 	stat->mtime = fd->mtime;
-	stat->attr = fd->attr;
-	stat->acl = fd->acl;
-	stat->compression = fd->compression;
+
+	auto callback = [&](AttributeEnum& e) -> bool {
+		auto update = [&](void* value) {
+			memcpy(value, e.buffer, e.size);
+			return true;
+		};
+		switch(e.tag) {
+		case AttributeTag::ReadAce:
+			return update(&stat->acl.readAccess);
+		case AttributeTag::WriteAce:
+			return update(&stat->acl.writeAccess);
+		case AttributeTag::Compression:
+			return update(&stat->compression);
+		case AttributeTag::FileAttributes:
+			return update(&stat->attr);
+		default:
+			return true; // Ignore, continue
+		}
+	};
+	uint8_t buffer[16];
+	fenumxattr(file, callback, buffer, sizeof(buffer));
 	checkStat(*stat);
 
 	return FS_OK;
@@ -438,14 +450,12 @@ int FileSystem::fsetxattr(FileHandle file, AttributeTag tag, const void* data, s
 		return Error::BadParam;
 	}
 
-	auto value = fd->getAttributePtr(tag);
-	if(value != nullptr) {
-		if(memcmp(value, data, attrSize) != 0) {
-			memcpy(value, data, attrSize);
-			fd->dirty += tag;
-		}
+	if(tag == AttributeTag::ModifiedTime) {
+		memcpy(&fd->mtime, data, attrSize);
+		fd->flags += FileDescriptor::Flag::TimeChanged;
 		return FS_OK;
 	}
+
 	return lfs_file_setattr(&lfs, &fd->file, uint8_t(tag), data, size);
 }
 
@@ -453,16 +463,12 @@ int FileSystem::fgetxattr(FileHandle file, AttributeTag tag, void* buffer, size_
 {
 	GET_FD()
 
-	auto attrSize = getAttributeSize(tag);
-	if(size >= attrSize) {
-		auto value = fd->getAttributePtr(tag);
-		if(value != nullptr) {
-			memcpy(buffer, &value, attrSize);
-			return attrSize;
-		}
-		return lfs_file_getattr(&lfs, &fd->file, uint8_t(tag), buffer, size);
+	if(tag == AttributeTag::ModifiedTime) {
+		memcpy(buffer, &fd->mtime, std::min(size, sizeof(TimeStamp)));
+		return sizeof(TimeStamp);
 	}
-	return attrSize;
+
+	return lfs_file_getattr(&lfs, &fd->file, uint8_t(tag), buffer, size);
 }
 
 int FileSystem::fenumxattr(FileHandle file, AttributeEnumCallback callback, void* buffer, size_t bufsize)
@@ -631,16 +637,13 @@ int FileSystem::remove(const char* path)
 	}
 
 	// Check file is not marked read-only
-	FileAttributes attr;
-	int err = get_attr(path, AttributeTag::FileAttributes, attr);
-	if(err < 0) {
-		return err;
-	}
+	FileAttributes attr{};
+	get_attr(path, AttributeTag::FileAttributes, attr);
 	if(attr[FileAttribute::ReadOnly]) {
 		return Error::ReadOnly;
 	}
 
-	err = lfs_remove(&lfs, path);
+	int err = lfs_remove(&lfs, path);
 	return Error::fromSystem(err);
 }
 
@@ -648,7 +651,9 @@ int FileSystem::fremove(FileHandle file)
 {
 	GET_FD()
 
-	if(fd->attr[FileAttribute::ReadOnly]) {
+	FileAttributes attr{};
+	get_attr(fd->file, AttributeTag::FileAttributes, attr);
+	if(attr[FileAttribute::ReadOnly]) {
 		return Error::ReadOnly;
 	}
 

@@ -53,14 +53,15 @@ template <typename T> constexpr lfs_attr makeAttr(AttributeTag tag, T& value)
 }
 
 struct StatAttr {
-	static constexpr size_t count{4};
+	static constexpr size_t count{5};
 	struct lfs_attr attrs[count];
 
 	StatAttr(Stat& stat)
 		: attrs{
 			  makeAttr(AttributeTag::ModifiedTime, stat.mtime),
 			  makeAttr(AttributeTag::FileAttributes, stat.attr),
-			  makeAttr(AttributeTag::Acl, stat.acl),
+			  makeAttr(AttributeTag::ReadAce, stat.acl.readAccess),
+			  makeAttr(AttributeTag::WriteAce, stat.acl.writeAccess),
 			  makeAttr(AttributeTag::Compression, stat.compression),
 		  }
 	{
@@ -74,35 +75,19 @@ struct FileDescriptor {
 	CString name;
 	lfs_file_t file{};
 	TimeStamp mtime{};
-	FileAttributes attr;
-	ACL acl{};
-	Compression compression{};
-	BitSet<uint8_t, AttributeTag> dirty;
 	uint8_t buffer[LFS_CACHE_SIZE];
 	struct lfs_file_config config {
 		buffer
 	};
+	enum class Flag {
+		TimeChanged,
+	};
+	BitSet<uint8_t, Flag> flags;
 
 	void touch()
 	{
 		mtime = fsGetTimeUTC();
-		dirty += AttributeTag::ModifiedTime;
-	}
-
-	void* getAttributePtr(AttributeTag tag)
-	{
-		switch(tag) {
-		case AttributeTag::ModifiedTime:
-			return &mtime;
-		case AttributeTag::Acl:
-			return &acl;
-		case AttributeTag::Compression:
-			return &compression;
-		case AttributeTag::FileAttributes:
-			return &attr;
-		default:
-			return nullptr;
-		}
+		flags += Flag::TimeChanged;
 	}
 };
 
@@ -187,33 +172,6 @@ private:
 	{
 		int err = lfs_file_removeattr(&lfs, &file, uint8_t(tag));
 		return Error::fromSystem(err);
-	}
-
-	template <typename T> void flush_attr(FileDescriptor& fd, AttributeTag tag, const T& attr)
-	{
-		if(!fd.dirty[tag]) {
-			return;
-		}
-
-		fd.dirty -= tag;
-
-		bool isDefault{false};
-
-		switch(tag) {
-		case AttributeTag::Compression:
-			isDefault = (fd.compression.type == Compression::Type::None);
-			break;
-		case AttributeTag::FileAttributes:
-			isDefault = fd.attr.none();
-			break;
-		default:; // That's all
-		}
-
-		if(isDefault) {
-			remove_attr(fd.file, tag);
-		} else {
-			set_attr(fd.file, tag, attr);
-		}
 	}
 
 	static int f_read(const struct lfs_config* c, lfs_block_t block, lfs_off_t off, void* buffer, lfs_size_t size)
