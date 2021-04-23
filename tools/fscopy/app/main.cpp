@@ -64,14 +64,15 @@ bool copyFiles(const String& path)
 		if(err < 0) {
 			return error(src, "read", filename);
 		}
-		if(!dst.settime(stat.mtime)) {
-			return error(dst, "settime", filename);
+
+		auto callback = [&](IFS::AttributeEnum& e) -> bool { return dst.setAttribute(e.tag, e.buffer, e.size); };
+		char buffer[1024];
+		src.enumAttributes(callback, buffer, sizeof(buffer));
+		if(dst.getLastError() < 0) {
+			return error(dst.getLastErrorString(), "setAttribute", filename);
 		}
-		if(!dst.setcompression(stat.compression)) {
-			return error(dst, "setcompression", filename);
-		}
-		if(!dst.setacl(stat.acl)) {
-			return error(dst, "setacl", filename);
+		if(src.getLastError() < 0) {
+			return error(src.getLastErrorString(), "enumAttributes", filename);
 		}
 	}
 	dir.close();

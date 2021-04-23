@@ -87,18 +87,17 @@ bool copyFiles(IFS::FileSystem& srcfs, IFS::FileSystem& dstfs, const String& pat
 			m_printf("Copy read '%s' failed: %s\r\n", filename.c_str(), src.getLastErrorString().c_str());
 			return false;
 		}
-		if(!dst.settime(stat.mtime)) {
-			m_printf("settime('%s') failed: %s", filename.c_str(), dst.getLastErrorString().c_str());
-			return false;
-		}
-		if(!dst.setcompression(stat.compression)) {
-			m_printf("setcompression('%s') failed: %s\r\n", filename.c_str(), dst.getLastErrorString().c_str());
-			return false;
-		}
-		if(!dst.setacl(stat.acl)) {
-			m_printf("setacl('%s') failed: %s\r\n", filename.c_str(), dst.getLastErrorString().c_str());
-			return false;
-		}
+
+		// Copy metadata
+		auto callback = [&](IFS::AttributeEnum& e) -> bool {
+			if(!dst.setAttribute(e.tag, e.buffer, e.size)) {
+				m_printf(_F("setAttribute(%s) failed: %s"), toString(e.tag).c_str(), dst.getLastErrorString().c_str());
+				return false;
+			}
+			return true;
+		};
+		char buffer[1024];
+		src.enumAttributes(callback, buffer, sizeof(buffer));
 	}
 	dir.close();
 
