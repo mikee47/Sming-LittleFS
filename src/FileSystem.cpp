@@ -74,6 +74,8 @@ OpenFlags mapFileOpenFlags(OpenFlags flags, lfs_open_flags& lfsflags)
 	map(OpenFlag::Read, LFS_O_RDONLY);
 	map(OpenFlag::Write, LFS_O_WRONLY);
 
+	flags -= OpenFlag::NoFollow;
+
 	if(flags.any()) {
 		debug_w("Unknown OpenFlags: 0x%02X", flags.value());
 	}
