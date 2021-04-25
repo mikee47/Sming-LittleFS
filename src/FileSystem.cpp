@@ -371,7 +371,8 @@ int FileSystem::stat(const char* path, Stat* stat)
 	FS_CHECK_PATH(path);
 
 	if(stat == nullptr) {
-		struct lfs_info info{};
+		struct lfs_info info {
+		};
 		int err = lfs_stat(&lfs, path ?: "", &info);
 		return Error::fromSystem(err);
 	}
@@ -381,7 +382,8 @@ int FileSystem::stat(const char* path, Stat* stat)
 	struct lfs_stat_config cfg {
 		sa.attrs, sa.count
 	};
-	struct lfs_info info{};
+	struct lfs_info info {
+	};
 	int err = lfs_statcfg(&lfs, path ?: "", &info, &cfg);
 	if(err < 0) {
 		return Error::fromSystem(err);
@@ -461,6 +463,25 @@ int FileSystem::fgetxattr(FileHandle file, AttributeTag tag, void* buffer, size_
 		return lfs_file_getattr(&lfs, &fd->file, uint8_t(tag), buffer, size);
 	}
 	return attrSize;
+}
+
+int FileSystem::fenumxattr(FileHandle file, AttributeEnumCallback callback, void* buffer, size_t bufsize)
+{
+	GET_FD()
+
+	auto lfs_callback = [](struct lfs_attr_enum_t* lfs_e, uint8_t type, lfs_size_t attrsize) -> bool {
+		AttributeEnum e{lfs_e->buffer, lfs_e->bufsize};
+		e.tag = AttributeTag(type);
+		e.attrsize = attrsize;
+		e.size = std::min(attrsize, e.bufsize);
+		auto& callback = *static_cast<AttributeEnumCallback*>(lfs_e->param);
+		return callback(e);
+	};
+	struct lfs_attr_enum_t lfs_e {
+		&callback, buffer, bufsize
+	};
+	int res = lfs_file_enumattr(&lfs, &fd->file, lfs_callback, &lfs_e);
+	return Error::fromSystem(res);
 }
 
 int FileSystem::setxattr(const char* path, AttributeTag tag, const void* data, size_t size)
@@ -547,7 +568,8 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 	struct lfs_stat_config cfg {
 		sa.attrs, sa.count
 	};
-	struct lfs_info info{};
+	struct lfs_info info {
+	};
 	int err = lfs_dir_readcfg(&lfs, &d->dir, &info, &cfg);
 	if(err == 0) {
 		return Error::NoMoreFiles;
