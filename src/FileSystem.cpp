@@ -126,7 +126,8 @@ int FileSystem::mount()
 		 * For now, just format it.
 		 */
 		debug_w("[LFS] Mount failed, formatting");
-		res = format();
+		format();
+		res = tryMount();
 	}
 
 	return res;
@@ -155,6 +156,7 @@ int FileSystem::tryMount()
  */
 int FileSystem::format()
 {
+	auto wasMounted = mounted;
 	if(mounted) {
 		lfs_unmount(&lfs);
 		mounted = false;
@@ -168,7 +170,7 @@ int FileSystem::format()
 	}
 
 	// Re-mount
-	return tryMount();
+	return wasMounted ? tryMount() : true;
 }
 
 int FileSystem::check()
