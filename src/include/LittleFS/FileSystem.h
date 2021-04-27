@@ -81,8 +81,9 @@ struct FileDescriptor {
 	};
 	enum class Flag {
 		TimeChanged,
+		IsRoot,
 	};
-	BitSet<uint8_t, Flag> flags;
+	BitSet<uint8_t, Flag, 2> flags;
 
 	void touch()
 	{
@@ -137,6 +138,7 @@ public:
 private:
 	int tryMount();
 	void flushMeta(FileDescriptor& fd);
+	void checkRootAcl(AttributeTag tag, const void* value);
 
 	template <typename T> int get_attr(const char* path, AttributeTag tag, T& attr)
 	{
@@ -241,6 +243,7 @@ private:
 	};
 	lfs_t lfs{};
 	std::unique_ptr<FileDescriptor> fileDescriptors[LFS_MAX_FDS];
+	ACL rootAcl{};
 	bool mounted{false};
 };
 

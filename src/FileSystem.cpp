@@ -140,11 +140,14 @@ int FileSystem::tryMount()
 	if(err < 0) {
 		err = Error::fromSystem(err);
 		debug_ifserr(err, "lfs_mount()");
-	} else {
-		mounted = true;
+		return err;
 	}
 
-	return err;
+	get_attr("", AttributeTag::ReadAce, rootAcl.readAccess);
+	get_attr("", AttributeTag::WriteAce, rootAcl.writeAccess);
+
+	mounted = true;
+	return FS_OK;
 }
 
 /*
@@ -254,6 +257,10 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 	}
 
 	get_attr(fd->file, AttributeTag::ModifiedTime, fd->mtime);
+
+	if(isRootPath(path)) {
+		fd->flags += FileDescriptor::Flag::IsRoot;
+	}
 
 	// Copy name into descriptor
 	if(path != nullptr) {
@@ -377,6 +384,7 @@ int FileSystem::stat(const char* path, Stat* stat)
 	}
 
 	*stat = Stat{};
+	stat->acl = rootAcl;
 	StatAttr sa(*stat);
 	struct lfs_stat_config cfg {
 		sa.attrs, sa.count
@@ -408,6 +416,7 @@ int FileSystem::fstat(FileHandle file, Stat* stat)
 	stat->name.copy(fd->name.c_str());
 	stat->size = size;
 	stat->mtime = fd->mtime;
+	stat->acl = rootAcl;
 
 	auto callback = [&](AttributeEnum& e) -> bool {
 		auto update = [&](void* value) {
@@ -458,7 +467,22 @@ int FileSystem::fsetxattr(FileHandle file, AttributeTag tag, const void* data, s
 		return FS_OK;
 	}
 
-	return lfs_file_setattr(&lfs, &fd->file, uint8_t(tag), data, size);
+	int res = lfs_file_setattr(&lfs, &fd->file, uint8_t(tag), data, size);
+	if(res >= 0 && fd->flags[FileDescriptor::Flag::IsRoot]) {
+		checkRootAcl(tag, data);
+	}
+
+	return Error::fromSystem(res);
+}
+
+void FileSystem::checkRootAcl(AttributeTag tag, const void* value)
+{
+	if(tag == AttributeTag::ReadAce) {
+		rootAcl.readAccess = *static_cast<const UserRole*>(value);
+	}
+	if(tag == AttributeTag::WriteAce) {
+		rootAcl.writeAccess = *static_cast<const UserRole*>(value);
+	}
 }
 
 int FileSystem::fgetxattr(FileHandle file, AttributeTag tag, void* buffer, size_t size)
@@ -514,6 +538,11 @@ int FileSystem::setxattr(const char* path, AttributeTag tag, const void* data, s
 		return Error::BadParam;
 	}
 	int err = lfs_setattr(&lfs, path ?: "", uint8_t(tag), data, size);
+
+	if(err >= 0) {
+		checkRootAcl(tag, data);
+	}
+
 	return Error::fromSystem(err);
 }
 
@@ -548,7 +577,6 @@ int FileSystem::opendir(const char* path, DirHandle& dir)
 	int err = lfs_dir_open(&lfs, &d->dir, path ?: "");
 	if(err < 0) {
 		err = Error::fromSystem(err);
-		debug_ifserr(err, "opendir");
 		delete d;
 		return err;
 	}
