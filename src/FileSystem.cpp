@@ -459,7 +459,7 @@ int FileSystem::fsetxattr(FileHandle file, AttributeTag tag, const void* data, s
 	}
 
 	auto attrSize = getAttributeSize(tag);
-	if(size < attrSize) {
+	if(attrSize != 0 && size != attrSize) {
 		return Error::BadParam;
 	}
 
