@@ -99,6 +99,11 @@ OpenFlags mapFileOpenFlags(OpenFlags flags, lfs_open_flags& lfsflags)
 		return Error::FileNotOpen;                                                                                     \
 	}
 
+#define CHECK_WRITE()                                                                                                  \
+	if(!fd->flags[FileDescriptor::Flag::Write]) {                                                                      \
+		return Error::ReadOnly;                                                                                        \
+	}
+
 FileSystem::~FileSystem()
 {
 	if(mounted) {
@@ -263,6 +268,7 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 	if(isRootPath(path)) {
 		fd->flags += FileDescriptor::Flag::IsRoot;
 	}
+	fd->flags[FileDescriptor::Flag::Write] = flags[OpenFlag::Write];
 
 	// Copy name into descriptor
 	if(path != nullptr) {
@@ -315,6 +321,7 @@ int32_t FileSystem::tell(FileHandle file)
 int FileSystem::ftruncate(FileHandle file, size_t new_size)
 {
 	GET_FD()
+	CHECK_WRITE()
 
 	int res = lfs_file_truncate(&lfs, &fd->file, new_size);
 	return Error::fromSystem(res);
@@ -331,6 +338,7 @@ void FileSystem::flushMeta(FileDescriptor& fd)
 int FileSystem::flush(FileHandle file)
 {
 	GET_FD()
+	CHECK_WRITE()
 
 	flushMeta(*fd);
 
@@ -355,6 +363,7 @@ int FileSystem::read(FileHandle file, void* data, size_t size)
 int FileSystem::write(FileHandle file, const void* data, size_t size)
 {
 	GET_FD()
+	CHECK_WRITE()
 
 	int res = lfs_file_write(&lfs, &fd->file, data, size);
 	if(res < 0) {
@@ -448,6 +457,7 @@ int FileSystem::fstat(FileHandle file, Stat* stat)
 int FileSystem::fsetxattr(FileHandle file, AttributeTag tag, const void* data, size_t size)
 {
 	GET_FD()
+	CHECK_WRITE()
 
 	if(data == nullptr) {
 		// Cannot delete standard attributes

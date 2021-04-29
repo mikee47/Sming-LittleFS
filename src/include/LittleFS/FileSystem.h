@@ -82,8 +82,9 @@ struct FileDescriptor {
 	enum class Flag {
 		TimeChanged,
 		IsRoot,
+		Write, ///< LFS throws asserts so we need to pre-check
 	};
-	BitSet<uint8_t, Flag, 2> flags;
+	BitSet<uint8_t, Flag, 3> flags;
 
 	void touch()
 	{
