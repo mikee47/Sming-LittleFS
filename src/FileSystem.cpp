@@ -517,7 +517,7 @@ int FileSystem::fenumxattr(FileHandle file, AttributeEnumCallback callback, void
 		AttributeEnum e{lfs_e->buffer, lfs_e->bufsize};
 		e.tag = AttributeTag(type);
 		e.attrsize = attrsize;
-		e.size = std::min(attrsize, e.bufsize);
+		e.size = std::min(size_t(attrsize), e.bufsize);
 		auto& callback = *static_cast<AttributeEnumCallback*>(lfs_e->param);
 		return callback(e);
 	};
