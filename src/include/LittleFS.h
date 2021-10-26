@@ -1,4 +1,4 @@
-/**
+/****
  * LittleFS.h
  * Helper functions to assist with filesystem creation
  *

@@ -1,4 +1,4 @@
-/**
+/****
  * Error.h - LittleFS error codes
  *
  * Created on: 8 April 2021
