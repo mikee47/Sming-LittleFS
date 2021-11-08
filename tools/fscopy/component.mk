@@ -1,3 +1,4 @@
+COMPONENT_SOC := host
 COMPONENT_DEPENDS := LittleFS
 HWCONFIG := standard
 
