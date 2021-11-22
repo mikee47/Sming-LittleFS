@@ -245,7 +245,7 @@ void readStructure(Storage::Partition part, const lfs_block_t pair[2])
 		if(!part.read(off, buf, tag.size)) {
 			break;
 		}
-		m_printHex(s, buf, std::min(tag.size, 128U));
+		m_printHex(s, buf, std::min(tag.size, uint32_t(128)));
 		off += tag.size;
 
 		continue;
