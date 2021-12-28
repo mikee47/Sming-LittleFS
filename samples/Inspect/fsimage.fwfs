@@ -8,9 +8,7 @@
         "README.rst": "README.rst",
         "readme.md": "${SMING_HOME}/Components/IFS/README.rst",
         "sming.png": "${SMING_HOME}/../docs/api-logo.png",
-        "Data": "${SMING_HOME}/Core/Data",
-        "framework": "${SMING_HOME}/../docs/source/framework",
-        "Sming": "${SMING_HOME}/Core"
+        "Data": "${SMING_HOME}/Core/Data"
     },
     // Rules for file metadata. All rules are evaluated in sequence for every file
     "rules": [
