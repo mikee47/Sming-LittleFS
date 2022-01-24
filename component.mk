@@ -21,7 +21,7 @@ $(eval PART_CONFIG := $(call HwExpr,part.build['config']))
 .PHONY: lfs-build
 lfs-build: $(LFSCOPY_TOOL)
 	@echo "Creating intermediate FWFS image..."
-	$(Q) $(FSBUILD) -i $(PART_CONFIG) -o $(PART_TARGET).fwfs
+	$(Q) $(FSBUILD) -i "$(subst ",\",$(PART_CONFIG))" -o $(PART_TARGET).fwfs
 	@echo "Creating LFS image '$(PART_TARGET)'"
 	$(Q) $(LFSCOPY) $(PART_TARGET).fwfs $(PART_TARGET).tmp $(PARTITION_$(PART)_SIZE_BYTES)
 	$(Q) mv $(PART_TARGET).tmp $(PART_TARGET)
