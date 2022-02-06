@@ -1,135 +1,47 @@
 #include <SmingCore.h>
 #include <LittleFS.h>
 #include <Storage/FileDevice.h>
+#include <IFS/FileCopier.h>
 #include <hostlib/CommandLine.h>
-#include <memory>
 
 namespace
 {
-IFS::FileSystem* srcfs;
-IFS::FileSystem* dstfs;
-
-bool error(const String& errstr, const char* operation, const String& arg)
-{
-	m_printf("%s('%s') failed: %s\r\n", operation, arg.c_str(), errstr.c_str());
-	return false;
-}
-
-bool error(IFS::FsBase& obj, const char* operation, const String& arg)
-{
-	return error(obj.getLastErrorString(), operation, arg);
-}
-
-bool copyFiles(const String& path)
-{
-	IFS::Directory dir(srcfs);
-	if(!dir.open(path)) {
-		return false;
-	}
-
-	struct Dir {
-		String path;
-		IFS::TimeStamp mtime;
-	};
-	Vector<Dir> directories;
-
-	while(dir.next()) {
-		auto& stat = dir.stat();
-		String filename;
-		if(path.length() != 0) {
-			filename += path;
-			filename += '/';
-		}
-		filename += stat.name;
-		if(stat.isDir()) {
-			if(!stat.attr[FileAttribute::MountPoint]) {
-				directories.add(Dir{filename, stat.mtime});
-			}
-			continue;
-		}
-		IFS::File src(srcfs);
-		if(!src.open(filename)) {
-			return error(src, "open", filename);
-		}
-		IFS::File dst(dstfs);
-		if(!dst.open(filename, File::CreateNewAlways | File::WriteOnly)) {
-			return error(dst, "create", filename);
-		}
-		src.readContent([&dst](const char* buffer, size_t size) -> int { return dst.write(buffer, size); });
-		int err = dst.getLastError();
-		if(err < 0) {
-			return error(dst, "write", filename);
-		}
-		err = src.getLastError();
-		if(err < 0) {
-			return error(src, "read", filename);
-		}
-
-		auto callback = [&](IFS::AttributeEnum& e) -> bool { return dst.setAttribute(e.tag, e.buffer, e.size); };
-		char buffer[1024];
-		src.enumAttributes(callback, buffer, sizeof(buffer));
-		if(dst.getLastError() < 0) {
-			return error(dst.getLastErrorString(), "setAttribute", filename);
-		}
-		if(src.getLastError() < 0) {
-			return error(src.getLastErrorString(), "enumAttributes", filename);
-		}
-	}
-	dir.close();
-
-	auto time = IFS::fsGetTimeUTC();
-
-	for(auto& dir : directories) {
-		int err = dstfs->mkdir(dir.path);
-		if(err < 0) {
-			return error(dstfs->getErrorString(err), "mkdir", dir.path);
-		}
-		if(dir.mtime != time) {
-			dstfs->settime(dir.path, dir.mtime);
-		}
-		if(!copyFiles(dir.path)) {
-			return false;
-		}
-	}
-
-	return true;
-}
-
 bool fscopy(const char* srcFile, const char* dstFile, size_t dstSize)
 {
 	auto& hostfs = IFS::Host::getFileSystem();
 
 	// Source
-	auto file = hostfs.open(srcFile, File::ReadOnly);
-	if(file < 0) {
-		return error(hostfs.getErrorString(file), "open", srcFile);
+	auto srcfs = IFS::mountArchive(hostfs, srcFile);
+	if(srcfs == nullptr) {
+		m_printf("mount failed: %s", srcFile);
+		return false;
 	}
-	Storage::FileDevice srcDevice("SRC", hostfs, file);
-	auto part = srcDevice.createPartition("src", Storage::Partition::SubType::Data::fwfs, 0, hostfs.getSize(file),
-										  Storage::Partition::Flag::readOnly);
-	srcfs = IFS::createFirmwareFilesystem(part);
-	srcfs->mount();
 
 	// Destination
-	file = hostfs.open(dstFile, File::CreateNewAlways | File::ReadWrite);
+	auto file = hostfs.open(dstFile, File::CreateNewAlways | File::ReadWrite);
 	if(file < 0) {
-		return error(hostfs.getErrorString(file), "open", dstFile);
+		debug_e("Error opening '%s', %s", dstFile.c_str(), hostfs.getErrorString(file).c_str());
 	}
 	Storage::FileDevice dstDevice("DST", hostfs, file, dstSize);
 	dstDevice.erase_range(0, dstSize);
-	part = dstDevice.createPartition("dst", Storage::Partition::SubType::Data::littlefs, 0, dstSize);
-	dstfs = IFS::createLfsFilesystem(part);
+	auto part = dstDevice.createPartition("dst", Storage::Partition::SubType::Data::littlefs, 0, dstSize);
+	auto dstfs = IFS::createLfsFilesystem(part);
 	dstfs->mount();
 
 	IFS::Profiler profiler;
 	dstfs->setProfiler(&profiler);
-	bool res = copyFiles(nullptr);
+
+	IFS::FileCopier copier(*srcfs, *dstfs);
+	bool res = copier.copyDir(nullptr, nullptr);
 	dstfs->setProfiler(nullptr);
 
 	IFS::FileSystem::Info srcinfo;
 	srcfs->getinfo(srcinfo);
 	IFS::FileSystem::Info dstinfo;
 	dstfs->getinfo(dstinfo);
+
+	delete dstfs;
+	delete srcfs;
 
 	auto kb = [](size_t size) { return (size + 1023) / 1024; };
 
@@ -154,11 +66,10 @@ void init()
 	} else {
 		auto size = strtoul(parameters[2].text, nullptr, 0);
 		auto res = fscopy(parameters[0].text, parameters[1].text, size);
-		delete dstfs;
-		delete srcfs;
 		if(!res) {
-			abort();
+			exit(2);
 		}
 	}
-	System.restart();
+
+	exit(0);
 }
