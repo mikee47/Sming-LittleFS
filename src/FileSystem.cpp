@@ -428,6 +428,7 @@ int FileSystem::fstat(FileHandle file, Stat* stat)
 	stat->size = size;
 	stat->mtime = fd->mtime;
 	stat->acl = rootAcl;
+	stat->attr[FileAttribute::Directory] = (fd->file.type == LFS_TYPE_DIR);
 
 	auto callback = [&](AttributeEnum& e) -> bool {
 		auto update = [&](void* value) {
