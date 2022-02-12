@@ -49,6 +49,16 @@ void fillStat(Stat& stat, const lfs_info& info)
 	checkStat(stat);
 }
 
+int sysError(int lfsErrorCode)
+{
+	switch(lfsErrorCode) {
+	case LFS_ERR_NOENT:
+		return Error::NotFound;
+	default:
+		return Error::fromSystem(lfsErrorCode);
+	}
+}
+
 } // namespace
 
 /**
@@ -144,7 +154,7 @@ int FileSystem::tryMount()
 	lfs = lfs_t{};
 	auto err = lfs_mount(&lfs, &config);
 	if(err < 0) {
-		err = Error::fromSystem(err);
+		err = sysError(err);
 		debug_ifserr(err, "lfs_mount()");
 		return err;
 	}
@@ -169,7 +179,7 @@ int FileSystem::format()
 	lfs = lfs_t{};
 	int err = lfs_format(&lfs, &config);
 	if(err < 0) {
-		err = Error::fromSystem(err);
+		err = sysError(err);
 		debug_ifserr(err, "format()");
 		return err;
 	}
@@ -194,7 +204,7 @@ int FileSystem::getinfo(Info& info)
 		info.attr |= Attribute::Mounted;
 		auto usedBlocks = lfs_fs_size(&lfs);
 		if(usedBlocks < 0) {
-			return Error::fromSystem(usedBlocks);
+			return sysError(usedBlocks);
 		}
 		info.volumeSize = config.block_count * LFS_BLOCK_SIZE;
 		info.freeSpace = (config.block_count - usedBlocks) * LFS_BLOCK_SIZE;
@@ -257,8 +267,8 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 	auto& fd = fileDescriptors[file - LFS_HANDLE_MIN];
 	int err = lfs_file_opencfg(&lfs, &fd->file, path ?: "", oflags, &fd->config);
 	if(err < 0) {
-		err = Error::fromSystem(err);
-		debug_ifserr(err, "open('%s')", path);
+		err = sysError(err);
+		debug_d("open('%s'): %s", path, getErrorString(file).c_str());
 		fd.reset();
 		return err;
 	}
@@ -292,7 +302,7 @@ int FileSystem::close(FileHandle file)
 
 	int res = lfs_file_close(&lfs, &fd->file);
 	fd.reset();
-	return Error::fromSystem(res);
+	return sysError(res);
 }
 
 int FileSystem::eof(FileHandle file)
@@ -301,11 +311,11 @@ int FileSystem::eof(FileHandle file)
 
 	auto size = lfs_file_size(&lfs, &fd->file);
 	if(size < 0) {
-		return Error::fromSystem(size);
+		return sysError(size);
 	}
 	auto pos = lfs_file_tell(&lfs, &fd->file);
 	if(pos < 0) {
-		return Error::fromSystem(pos);
+		return sysError(pos);
 	}
 	return (pos >= size) ? 1 : 0;
 }
@@ -315,7 +325,7 @@ int32_t FileSystem::tell(FileHandle file)
 	GET_FD()
 
 	int res = lfs_file_tell(&lfs, &fd->file);
-	return Error::fromSystem(res);
+	return sysError(res);
 }
 
 int FileSystem::ftruncate(FileHandle file, size_t new_size)
@@ -324,7 +334,7 @@ int FileSystem::ftruncate(FileHandle file, size_t new_size)
 	CHECK_WRITE()
 
 	int res = lfs_file_truncate(&lfs, &fd->file, new_size);
-	return Error::fromSystem(res);
+	return sysError(res);
 }
 
 void FileSystem::flushMeta(FileDescriptor& fd)
@@ -343,7 +353,7 @@ int FileSystem::flush(FileHandle file)
 	flushMeta(*fd);
 
 	int res = lfs_file_sync(&lfs, &fd->file);
-	return Error::fromSystem(res);
+	return sysError(res);
 }
 
 int FileSystem::read(FileHandle file, void* data, size_t size)
@@ -352,7 +362,7 @@ int FileSystem::read(FileHandle file, void* data, size_t size)
 
 	int res = lfs_file_read(&lfs, &fd->file, data, size);
 	if(res < 0) {
-		int err = Error::fromSystem(res);
+		int err = sysError(res);
 		debug_ifserr(err, "read()");
 		return err;
 	}
@@ -367,7 +377,7 @@ int FileSystem::write(FileHandle file, const void* data, size_t size)
 
 	int res = lfs_file_write(&lfs, &fd->file, data, size);
 	if(res < 0) {
-		return Error::fromSystem(res);
+		return sysError(res);
 	}
 
 	fd->touch();
@@ -379,7 +389,7 @@ int FileSystem::lseek(FileHandle file, int offset, SeekOrigin origin)
 	GET_FD()
 
 	int res = lfs_file_seek(&lfs, &fd->file, offset, int(origin));
-	return Error::fromSystem(res);
+	return sysError(res);
 }
 
 int FileSystem::stat(const char* path, Stat* stat)
@@ -391,7 +401,7 @@ int FileSystem::stat(const char* path, Stat* stat)
 		struct lfs_info info {
 		};
 		int err = lfs_stat(&lfs, path ?: "", &info);
-		return Error::fromSystem(err);
+		return sysError(err);
 	}
 
 	*stat = Stat{};
@@ -404,7 +414,7 @@ int FileSystem::stat(const char* path, Stat* stat)
 	};
 	int err = lfs_statcfg(&lfs, path ?: "", &info, &cfg);
 	if(err < 0) {
-		return Error::fromSystem(err);
+		return sysError(err);
 	}
 
 	stat->fs = this;
@@ -418,7 +428,7 @@ int FileSystem::fstat(FileHandle file, Stat* stat)
 
 	auto size = lfs_file_size(&lfs, &fd->file);
 	if(stat == nullptr || size < 0) {
-		return Error::fromSystem(size);
+		return sysError(size);
 	}
 
 	*stat = Stat{};
@@ -466,7 +476,7 @@ int FileSystem::fsetxattr(FileHandle file, AttributeTag tag, const void* data, s
 			return Error::NotSupported;
 		}
 		int err = lfs_file_removeattr(&lfs, &fd->file, uint8_t(tag));
-		return Error::fromSystem(err);
+		return sysError(err);
 	}
 
 	auto attrSize = getAttributeSize(tag);
@@ -485,7 +495,7 @@ int FileSystem::fsetxattr(FileHandle file, AttributeTag tag, const void* data, s
 		checkRootAcl(tag, data);
 	}
 
-	return Error::fromSystem(res);
+	return sysError(res);
 }
 
 void FileSystem::checkRootAcl(AttributeTag tag, const void* value)
@@ -526,7 +536,7 @@ int FileSystem::fenumxattr(FileHandle file, AttributeEnumCallback callback, void
 		&callback, buffer, bufsize
 	};
 	int res = lfs_file_enumattr(&lfs, &fd->file, lfs_callback, &lfs_e);
-	return Error::fromSystem(res);
+	return sysError(res);
 }
 
 int FileSystem::setxattr(const char* path, AttributeTag tag, const void* data, size_t size)
@@ -540,7 +550,7 @@ int FileSystem::setxattr(const char* path, AttributeTag tag, const void* data, s
 			return Error::NotSupported;
 		}
 		int err = lfs_removeattr(&lfs, path ?: "", uint8_t(tag));
-		return Error::fromSystem(err);
+		return sysError(err);
 	}
 
 	if(tag < AttributeTag::User) {
@@ -556,7 +566,7 @@ int FileSystem::setxattr(const char* path, AttributeTag tag, const void* data, s
 		checkRootAcl(tag, data);
 	}
 
-	return Error::fromSystem(err);
+	return sysError(err);
 }
 
 int FileSystem::getxattr(const char* path, AttributeTag tag, void* buffer, size_t size)
@@ -574,7 +584,7 @@ int FileSystem::getxattr(const char* path, AttributeTag tag, void* buffer, size_
 	}
 
 	int res = lfs_getattr(&lfs, path ?: "", uint8_t(tag), buffer, size);
-	return Error::fromSystem(res);
+	return sysError(res);
 }
 
 int FileSystem::opendir(const char* path, DirHandle& dir)
@@ -589,7 +599,7 @@ int FileSystem::opendir(const char* path, DirHandle& dir)
 
 	int err = lfs_dir_open(&lfs, &d->dir, path ?: "");
 	if(err < 0) {
-		err = Error::fromSystem(err);
+		err = sysError(err);
 		delete d;
 		return err;
 	}
@@ -605,7 +615,7 @@ int FileSystem::rewinddir(DirHandle dir)
 
 	// Skip "." and ".." entries for consistency with other filesystems
 	int err = lfs_dir_seek(&lfs, &d->dir, 2);
-	return Error::fromSystem(err);
+	return sysError(err);
 }
 
 int FileSystem::readdir(DirHandle dir, Stat& stat)
@@ -625,7 +635,7 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 		return Error::NoMoreFiles;
 	}
 	if(err < 0) {
-		return Error::fromSystem(err);
+		return sysError(err);
 	}
 
 	stat.fs = this;
@@ -640,7 +650,7 @@ int FileSystem::closedir(DirHandle dir)
 
 	int err = lfs_dir_close(&lfs, &d->dir);
 	delete d;
-	return Error::fromSystem(err);
+	return sysError(err);
 }
 
 int FileSystem::mkdir(const char* path)
@@ -659,7 +669,7 @@ int FileSystem::mkdir(const char* path)
 	if(err == LFS_ERR_EXIST) {
 		return FS_OK;
 	}
-	return Error::fromSystem(err);
+	return sysError(err);
 }
 
 int FileSystem::rename(const char* oldpath, const char* newpath)
@@ -670,7 +680,7 @@ int FileSystem::rename(const char* oldpath, const char* newpath)
 	}
 
 	int err = lfs_rename(&lfs, oldpath, newpath);
-	return Error::fromSystem(err);
+	return sysError(err);
 }
 
 int FileSystem::remove(const char* path)
@@ -688,7 +698,7 @@ int FileSystem::remove(const char* path)
 	}
 
 	int err = lfs_remove(&lfs, path);
-	return Error::fromSystem(err);
+	return sysError(err);
 }
 
 int FileSystem::fremove(FileHandle file)
