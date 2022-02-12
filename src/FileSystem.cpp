@@ -613,6 +613,7 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 	GET_FILEDIR()
 
 	stat = Stat{};
+	stat.acl = rootAcl;
 	StatAttr sa(stat);
 	struct lfs_stat_config cfg {
 		sa.attrs, sa.count
