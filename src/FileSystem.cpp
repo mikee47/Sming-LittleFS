@@ -438,7 +438,6 @@ int FileSystem::fstat(FileHandle file, Stat* stat)
 	stat->size = size;
 	stat->mtime = fd->mtime;
 	stat->acl = rootAcl;
-	stat->attr[FileAttribute::Directory] = (fd->file.type == LFS_TYPE_DIR);
 
 	auto callback = [&](AttributeEnum& e) -> bool {
 		auto update = [&](void* value) {
@@ -461,6 +460,7 @@ int FileSystem::fstat(FileHandle file, Stat* stat)
 	uint8_t buffer[16];
 	fenumxattr(file, callback, buffer, sizeof(buffer));
 	checkStat(*stat);
+	stat->attr[FileAttribute::Directory] = (fd->file.type == LFS_TYPE_DIR);
 
 	return FS_OK;
 }
