@@ -1,0 +1,9 @@
+{
+    "name": "FS Test ESP32",
+    "base_config": "lfstest",
+    "partitions": {
+        "factory": {
+            "size": "400K"
+        }
+    }
+}

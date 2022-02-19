@@ -1,0 +1,13 @@
+{
+    "name": "FS Test",
+    "base_config": "standard",
+    "options": [],
+    "partitions": {
+        "lfs1": {
+            "address": "0x0007a000",
+            "size": "512K",
+            "type": "data",
+            "subtype": "littlefs"
+        }
+    }
+}

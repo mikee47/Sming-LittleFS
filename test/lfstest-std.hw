@@ -1,0 +1,9 @@
+{
+    "name": "FS Test STANDARD",
+    "base_config": "lfstest",
+    "partitions": {
+        "rom0": {
+            "size": "400K"
+        }
+    }
+}
