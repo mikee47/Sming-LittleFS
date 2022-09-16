@@ -20,7 +20,7 @@ bool fscopy(const char* srcFile, const char* dstFile, size_t dstSize)
 	// Destination
 	auto file = hostfs.open(dstFile, File::CreateNewAlways | File::ReadWrite);
 	if(file < 0) {
-		debug_e("Error opening '%s', %s", dstFile.c_str(), hostfs.getErrorString(file).c_str());
+		Serial << _F("Error opening '") << dstFile << "', " << hostfs.getErrorString(file) << endl;
 	}
 	Storage::FileDevice dstDevice("DST", hostfs, file, dstSize);
 	dstDevice.erase_range(0, dstSize);
@@ -45,9 +45,10 @@ bool fscopy(const char* srcFile, const char* dstFile, size_t dstSize)
 
 	auto kb = [](size_t size) { return (size + 1023) / 1024; };
 
-	m_printf("Source %s size: %u KB; Output %s used: %u KB, free: %u KB\r\n", toString(srcinfo.type).c_str(),
-			 kb(srcinfo.used()), toString(dstinfo.type).c_str(), kb(dstinfo.used()), kb(dstinfo.freeSpace));
-	m_printf("Perf stats: %s\r\n", profiler.toString().c_str());
+	Serial << "Source " << srcinfo.type << " size: " << kb(srcinfo.used()) << " KB; Output " << dstinfo.type
+		   << " used: " << kb(dstinfo.used()) << " KB, free: " << kb(dstinfo.freeSpace) << " KB" << endl;
+
+	Serial << "Perf stats: " << profiler << endl;
 
 	return res;
 }

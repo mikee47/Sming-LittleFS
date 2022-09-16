@@ -176,25 +176,14 @@ void fstest()
 
 	getFileSystem()->setProfiler(nullptr);
 
-	Serial.print(F("Perf stats: "));
-	Serial.println(profiler.toString());
+	Serial << _F("Perf stats: ") << profiler << endl;
 
-	auto kb = [](size_t size) {
-		String s;
-		s += (size + 1023) / 1024;
-		s += "KB";
-		return s;
-	};
+	auto kb = [](size_t size) { return (size + 1023) / 1024; };
 
 	IFS::FileSystem::Info info;
 	getFileSystem()->getinfo(info);
-	Serial.print(F("Volume Size: "));
-	Serial.print(kb(info.volumeSize));
-	Serial.print(F(", Used: "));
-	Serial.print(kb(info.used()));
-	Serial.print(F(", Free space: "));
-	Serial.print(kb(info.freeSpace));
-	Serial.println();
+	Serial << F("Volume Size: ") << kb(info.volumeSize) << F(" KB, Used: ") << kb(info.used()) << F(" KB, Free space: ")
+		   << kb(info.freeSpace) << " KB" << endl;
 }
 
 void swap(uint32_t& value)
