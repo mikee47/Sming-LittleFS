@@ -185,7 +185,7 @@ int FileSystem::format()
 	}
 
 	// Re-mount
-	return wasMounted ? tryMount() : true;
+	return wasMounted ? tryMount() : FS_OK;
 }
 
 int FileSystem::check()
