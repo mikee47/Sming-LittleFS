@@ -27,6 +27,7 @@ namespace IFS
 {
 namespace LittleFS
 {
+int translateLfsError(int lfs_error);
 String lfsErrorToStr(int err);
 
 } // namespace LittleFS

@@ -21,28 +21,30 @@
 
 #include "include/LittleFS/Error.h"
 #include "../littlefs/lfs.h"
+#include <IFS/Error.h>
 #include <FlashString/Map.hpp>
 
 namespace IFS
 {
 namespace LittleFS
 {
+#define LFS_ERROR_TRANSLATION_MAP(XX)                                                                                  \
+	XX(IO, Error::ReadFailure)                                                                                         \
+	XX(CORRUPT, Error::BadFileSystem)                                                                                  \
+	XX(NOENT, Error::NotFound)                                                                                         \
+	XX(EXIST, Error::Exists)                                                                                           \
+	XX(FBIG, Error::TooBig)                                                                                            \
+	XX(BADF, Error::InvalidHandle)                                                                                     \
+	XX(INVAL, Error::BadParam)                                                                                         \
+	XX(NOSPC, Error::NoSpace)                                                                                          \
+	XX(NAMETOOLONG, Error::NameTooLong)
+
 #define LFS_ERROR_MAP(XX)                                                                                              \
-	XX(OK, "No error")                                                                                                 \
-	XX(IO, "Error during device operation")                                                                            \
-	XX(CORRUPT, "Corrupted")                                                                                           \
-	XX(NOENT, "No directory entry")                                                                                    \
-	XX(EXIST, "Entry already exists")                                                                                  \
 	XX(NOTDIR, "Entry is not a dir")                                                                                   \
 	XX(ISDIR, "Entry is a dir")                                                                                        \
 	XX(NOTEMPTY, "Dir is not empty")                                                                                   \
-	XX(BADF, "Bad file number")                                                                                        \
-	XX(FBIG, "File too large")                                                                                         \
-	XX(INVAL, "Invalid parameter")                                                                                     \
-	XX(NOSPC, "No space left on device")                                                                               \
 	XX(NOMEM, "No more memory available")                                                                              \
-	XX(NOATTR, "No data/attr available")                                                                               \
-	XX(NAMETOOLONG, "File name too long")
+	XX(NOATTR, "No data/attr available")
 
 #define XX(tag, desc) DEFINE_FSTR_LOCAL(str_##tag, #tag)
 LFS_ERROR_MAP(XX)
@@ -51,6 +53,17 @@ LFS_ERROR_MAP(XX)
 #define XX(tag, desc) {LFS_ERR_##tag, &str_##tag},
 DEFINE_FSTR_MAP_LOCAL(errorMap, int, FlashString, LFS_ERROR_MAP(XX))
 #undef XX
+
+int translateLfsError(int lfs_error)
+{
+	switch(lfs_error) {
+#define XX(err_lfs, err_sys)                                                                                           \
+	case err_lfs:                                                                                                      \
+		return err_sys;
+	default:
+		return Error::fromSystem(lfs_error);
+	}
+}
 
 String lfsErrorToStr(int err)
 {
