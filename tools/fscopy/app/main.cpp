@@ -43,7 +43,7 @@ bool fscopy(const char* srcFile, const char* dstFile, size_t dstSize)
 	delete dstfs;
 	delete srcfs;
 
-	auto kb = [](size_t size) { return (size + 1023) / 1024; };
+	auto kb = [](file_size_t size) { return (size + 1023) / 1024; };
 
 	Serial << "Source " << srcinfo.type << " size: " << kb(srcinfo.used()) << " KB; Output " << dstinfo.type
 		   << " used: " << kb(dstinfo.used()) << " KB, free: " << kb(dstinfo.freeSpace) << " KB" << endl;

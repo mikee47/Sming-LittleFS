@@ -178,7 +178,7 @@ void fstest()
 
 	Serial << _F("Perf stats: ") << profiler << endl;
 
-	auto kb = [](size_t size) { return (size + 1023) / 1024; };
+	auto kb = [](volume_size_t size) { return (size + 1023) / 1024; };
 
 	IFS::FileSystem::Info info;
 	getFileSystem()->getinfo(info);
