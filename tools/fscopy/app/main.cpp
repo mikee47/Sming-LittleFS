@@ -24,7 +24,7 @@ bool fscopy(const char* srcFile, const char* dstFile, size_t dstSize)
 	}
 	Storage::FileDevice dstDevice("DST", hostfs, file, dstSize);
 	dstDevice.erase_range(0, dstSize);
-	auto part = dstDevice.partitions().add("dst", Storage::Partition::SubType::Data::littlefs, 0, dstSize);
+	auto part = dstDevice.editablePartitions().add("dst", Storage::Partition::SubType::Data::littlefs, 0, dstSize);
 	auto dstfs = IFS::createLfsFilesystem(part);
 	dstfs->mount();
 
