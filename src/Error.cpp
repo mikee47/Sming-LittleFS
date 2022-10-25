@@ -58,8 +58,10 @@ int translateLfsError(int lfs_error)
 {
 	switch(lfs_error) {
 #define XX(err_lfs, err_sys)                                                                                           \
-	case err_lfs:                                                                                                      \
+	case LFS_ERR_##err_lfs:                                                                                            \
 		return err_sys;
+		LFS_ERROR_TRANSLATION_MAP(XX)
+#undef XX
 	default:
 		return Error::fromSystem(lfs_error);
 	}
