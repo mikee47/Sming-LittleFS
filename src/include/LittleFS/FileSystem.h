@@ -228,7 +228,7 @@ private:
 	uint8_t progBuffer[LFS_CACHE_SIZE];
 	uint8_t lookaheadBuffer[LFS_LOOKAHEAD_SIZE];
 	lfs_config config{
-		.context = nullptr,
+		.context = this,
 		.read = f_read,
 		.prog = f_prog,
 		.erase = f_erase,

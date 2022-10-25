@@ -121,7 +121,6 @@ int FileSystem::mount()
 		return Error::BadPartition;
 	}
 
-	config.context = this;
 	config.block_count = partition.size() / LFS_BLOCK_SIZE;
 
 	auto res = tryMount();
@@ -157,6 +156,21 @@ int FileSystem::tryMount()
 }
 
 /*
+ * Used by `format` to update partition details
+ */
+class LfsPartition : public Storage::Partition
+{
+public:
+	void update()
+	{
+		auto info = const_cast<Info*>(mPart);
+		FullType ft(Partition::SubType::Data::littlefs);
+		info->type = ft.type;
+		info->subtype = ft.subtype;
+	}
+};
+
+/*
  * Format the file system and leave it mounted in an accessible state.
  */
 int FileSystem::format()
@@ -166,13 +180,19 @@ int FileSystem::format()
 		lfs_unmount(&lfs);
 		mounted = false;
 	}
+	if(!partition) {
+		return Error::NoPartition;
+	}
 	lfs = lfs_t{};
+	config.block_count = partition.size() / LFS_BLOCK_SIZE;
 	int err = lfs_format(&lfs, &config);
 	if(err < 0) {
 		err = translateLfsError(err);
 		debug_ifserr(err, "format()");
 		return err;
 	}
+
+	static_cast<LfsPartition&>(partition).update();
 
 	// Re-mount
 	return wasMounted ? tryMount() : FS_OK;
