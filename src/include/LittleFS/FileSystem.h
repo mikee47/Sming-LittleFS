@@ -217,8 +217,9 @@ private:
 
 	static int f_sync(const struct lfs_config* c)
 	{
-		(void)c;
-		return FS_OK;
+		auto fs = static_cast<FileSystem*>(c->context);
+		assert(fs != nullptr);
+		return fs->partition.sync() ? LFS_ERR_OK : LFS_ERR_IO_WRITE;
 	}
 
 	Storage::Partition partition;
