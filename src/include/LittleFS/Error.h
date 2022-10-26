@@ -22,11 +22,21 @@
 #pragma once
 
 #include <IFS/Types.h>
+#include <IFS/Error.h>
 
 namespace IFS
 {
 namespace LittleFS
 {
+/*
+ * LFS provides only LFS_ERR_IO for low-level errors.
+ * We'd like a bit more information about failures, so use these instead.
+ */
+constexpr int LFS_ERR_IFS{-256}; // Well outside range of standard LFS error codes
+constexpr int LFS_ERR_IO_READ{LFS_ERR_IFS + Error::ReadFailure};
+constexpr int LFS_ERR_IO_WRITE{LFS_ERR_IFS + Error::WriteFailure};
+constexpr int LFS_ERR_IO_ERASE{LFS_ERR_IFS + Error::EraseFailure};
+
 int translateLfsError(int lfs_error);
 String lfsErrorToStr(int err);
 

@@ -20,6 +20,7 @@
 #pragma once
 
 #include <IFS/FileSystem.h>
+#include "Error.h"
 #include "../../littlefs/lfs.h"
 #include <memory>
 
@@ -183,12 +184,12 @@ private:
 		assert(fs != nullptr);
 		uint32_t addr = (block * LFS_BLOCK_SIZE) + off;
 		if(!fs->partition.read(addr, buffer, size)) {
-			return Error::ReadFailure;
+			return LFS_ERR_IO_READ;
 		}
 		if(fs->profiler != nullptr) {
 			fs->profiler->read(addr, buffer, size);
 		}
-		return FS_OK;
+		return LFS_ERR_OK;
 	}
 
 	static int f_prog(const struct lfs_config* c, lfs_block_t block, lfs_off_t off, const void* buffer, lfs_size_t size)
@@ -199,7 +200,7 @@ private:
 		if(fs->profiler != nullptr) {
 			fs->profiler->write(addr, buffer, size);
 		}
-		return fs->partition.write(addr, buffer, size) ? FS_OK : Error::WriteFailure;
+		return fs->partition.write(addr, buffer, size) ? LFS_ERR_OK : LFS_ERR_IO_WRITE;
 	}
 
 	static int f_erase(const struct lfs_config* c, lfs_block_t block)
@@ -211,7 +212,7 @@ private:
 		if(fs->profiler != nullptr) {
 			fs->profiler->erase(addr, size);
 		}
-		return fs->partition.erase_range(addr, size) ? FS_OK : Error::EraseFailure;
+		return fs->partition.erase_range(addr, size) ? LFS_ERR_OK : LFS_ERR_IO_ERASE;
 	}
 
 	static int f_sync(const struct lfs_config* c)

@@ -56,6 +56,9 @@ DEFINE_FSTR_MAP_LOCAL(errorMap, int, FlashString, LFS_ERROR_MAP(XX))
 
 int translateLfsError(int lfs_error)
 {
+	if(lfs_error < LFS_ERR_IFS) {
+		return lfs_error - LFS_ERR_IFS;
+	}
 	switch(lfs_error) {
 #define XX(err_lfs, err_sys)                                                                                           \
 	case LFS_ERR_##err_lfs:                                                                                            \
