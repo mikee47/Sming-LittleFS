@@ -1,6 +1,7 @@
 COMPONENT_SOC := host
 COMPONENT_DEPENDS := LittleFS
-HWCONFIG := standard
+override HWCONFIG := standard
+override HWCONFIG_OPTS :=
 
 # Call the generated executable something different (by default, it's just `app`)
 APP_NAME := fscopy
