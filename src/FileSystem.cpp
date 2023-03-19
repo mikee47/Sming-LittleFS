@@ -238,6 +238,47 @@ String FileSystem::getErrorString(int err)
 	}
 }
 
+int FileSystem::fgetextents(FileHandle file, Storage::Partition* part, Extent* list, uint16_t extcount)
+{
+	GET_FD()
+	auto& f = fd->file;
+
+	if(part) {
+		*part = partition;
+	}
+
+	int res = lfs_file_seek(&lfs, &f, 0, LFS_SEEK_END);
+	if(res < 0) {
+		return translateLfsError(res);
+	}
+	uint32_t fileSize = res;
+
+	uint16_t extIndex{0};
+	for(uint32_t offset = 0; offset < fileSize; ++extIndex) {
+		res = lfs_file_seek(&lfs, &f, offset, LFS_SEEK_SET);
+		if(res < 0) {
+			return translateLfsError(res);
+		}
+		uint8_t c;
+		res = lfs_file_read(&lfs, &f, &c, 1);
+		if(res < 0) {
+			return translateLfsError(res);
+		}
+		if(f.flags & LFS_F_INLINE) {
+			// Inline extents require traversing mdir, not trivial
+			return Error::NotSupported;
+		}
+		auto off = f.off - 1;
+		Extent ext{(f.block * LFS_BLOCK_SIZE) + off, std::min(LFS_BLOCK_SIZE - off, fileSize - offset)};
+		if(list && extIndex < extcount) {
+			list[extIndex] = ext;
+		}
+		offset += ext.length;
+	}
+
+	return extIndex;
+}
+
 FileHandle FileSystem::open(const char* path, OpenFlags flags)
 {
 	CHECK_MOUNTED()
