@@ -238,6 +238,41 @@ String FileSystem::getErrorString(int err)
 	}
 }
 
+int FileSystem::fgetextents(FileHandle file, Storage::Partition* part, Extent* list, uint16_t extcount)
+{
+	GET_FD()
+
+	if(part) {
+		*part = partition;
+	}
+
+	int res = lfs_file_seek(&lfs, &fd->file, 0, LFS_SEEK_END);
+	if(res < 0) {
+		return translateLfsError(res);
+	}
+	uint32_t fileSize = res;
+	res = lfs_file_seek(&lfs, &fd->file, 0, LFS_SEEK_SET);
+	if(res < 0) {
+		return translateLfsError(res);
+	}
+
+	uint16_t extIndex{0};
+	uint32_t offset{0};
+	for(; offset < fileSize; ++extIndex) {
+		Extent ext{fd->file.ctz.head * LFS_BLOCK_SIZE, fd->file.ctz.size};
+		if(list && extIndex < extcount) {
+			list[extIndex] = ext;
+		}
+		res = lfs_file_seek(&lfs, &fd->file, ext.length, LFS_SEEK_CUR);
+		if(res < 0) {
+			return translateLfsError(res);
+		}
+		offset += ext.length;
+	}
+
+	return extIndex;
+}
+
 FileHandle FileSystem::open(const char* path, OpenFlags flags)
 {
 	CHECK_MOUNTED()
