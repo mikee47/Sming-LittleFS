@@ -238,6 +238,43 @@ String FileSystem::getErrorString(int err)
 	}
 }
 
+int FileSystem::getFileExtents(lfs_file_t& file, ExtentList* list, size_t bufSize)
+{
+	int res = lfs_file_seek(&lfs, &file, 0, LFS_SEEK_END);
+	if(res < 0) {
+		return translateLfsError(res);
+	}
+	uint32_t fileSize = res;
+	res = lfs_file_seek(&lfs, &file, 0, LFS_SEEK_SET);
+	if(res < 0) {
+		return translateLfsError(res);
+	}
+
+	uint16_t bufExtCount = ExtentList::getMaxExtents(bufSize);
+	uint16_t extIndex{0};
+	uint32_t offset{0};
+	for(; offset < fileSize; ++extIndex) {
+		Extent ext{file.ctz.head * LFS_BLOCK_SIZE, file.ctz.size};
+		if(extIndex < bufExtCount) {
+			list->extents[extIndex] = ext;
+		}
+		res = lfs_file_seek(&lfs, &file, ext.length, LFS_SEEK_CUR);
+		if(res < 0) {
+			return translateLfsError(res);
+		}
+		offset += ext.length;
+	}
+
+	if(list) {
+		*list = {
+			.count = bufExtCount,
+			.total = extIndex,
+			partition,
+		};
+	}
+	return ExtentList::getBufferSize(extIndex);
+}
+
 FileHandle FileSystem::open(const char* path, OpenFlags flags)
 {
 	CHECK_MOUNTED()
@@ -473,6 +510,22 @@ int FileSystem::fstat(FileHandle file, Stat* stat)
 	stat->attr[FileAttribute::Directory] = (fd->file.type == LFS_TYPE_DIR);
 
 	return FS_OK;
+}
+
+int FileSystem::fcontrol(FileHandle file, ControlCode code, void* buffer, size_t bufSize)
+{
+	if(!buffer && bufSize) {
+		return Error::BadParam;
+	}
+
+	GET_FD()
+
+	switch(code) {
+	case FCNTL_GET_FILE_EXTENTS:
+		return getFileExtents(fd->file, reinterpret_cast<ExtentList*>(buffer), bufSize);
+	default:
+		return Error::NotSupported;
+	}
 }
 
 int FileSystem::fsetxattr(FileHandle file, AttributeTag tag, const void* data, size_t size)
