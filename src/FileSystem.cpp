@@ -241,33 +241,49 @@ String FileSystem::getErrorString(int err)
 int FileSystem::fgetextents(FileHandle file, Storage::Partition* part, Extent* list, uint16_t extcount)
 {
 	GET_FD()
+	auto& f = fd->file;
 
 	if(part) {
 		*part = partition;
 	}
 
-	int res = lfs_file_seek(&lfs, &fd->file, 0, LFS_SEEK_END);
+	int res = lfs_file_seek(&lfs, &f, 0, LFS_SEEK_END);
 	if(res < 0) {
 		return translateLfsError(res);
 	}
 	uint32_t fileSize = res;
-	res = lfs_file_seek(&lfs, &fd->file, 0, LFS_SEEK_SET);
+	res = lfs_file_seek(&lfs, &f, 0, LFS_SEEK_SET);
 	if(res < 0) {
 		return translateLfsError(res);
 	}
 
 	uint16_t extIndex{0};
-	uint32_t offset{0};
-	for(; offset < fileSize; ++extIndex) {
-		Extent ext{fd->file.ctz.head * LFS_BLOCK_SIZE, fd->file.ctz.size};
-		if(list && extIndex < extcount) {
-			list[extIndex] = ext;
-		}
-		res = lfs_file_seek(&lfs, &fd->file, ext.length, LFS_SEEK_CUR);
+	for(uint32_t offset=0; offset < fileSize; ++extIndex) {
+		uint8_t c;
+		res = lfs_file_read(&lfs, &f, &c, 1);
 		if(res < 0) {
 			return translateLfsError(res);
 		}
+		Extent ext;
+		if(f.flags & LFS_F_INLINE) {
+			debug_i("m.pair [%u, %u], rev %u, off %u, etag 0x%08x, count %u, erased %u, split %u, tail [%u, %u]",
+				f.m.pair[0], f.m.pair[1], f.m.rev, f.m.off, f.m.etag, f.m.count, f.m.erased, f.m.split, f.m.tail[0], f.m.tail[1]);
+			ext = {0, 1};
+			m_printHex("CACHE", f.cache.buffer, f.cache.size, 0, 32);
+		} else {
+			auto off = f.off - 1;
+			ext = Extent{(f.block * LFS_BLOCK_SIZE) + off, std::min(LFS_BLOCK_SIZE - off, fileSize - offset)};
+		}
+		if(list && extIndex < extcount) {
+			list[extIndex] = ext;
+			debug_i("id %u, ctz.head %u, ctz.size %u, block %u, off %u, cache.block %u, cache.off %u, flags 0x%08x",
+				f.id, f.ctz.head, f.ctz.size, f.block, f.off, f.cache.block, f.cache.off, f.flags);
+		}
 		offset += ext.length;
+		res = lfs_file_seek(&lfs, &f, offset, LFS_SEEK_SET);
+		if(res < 0) {
+			return translateLfsError(res);
+		}
 	}
 
 	return extIndex;
