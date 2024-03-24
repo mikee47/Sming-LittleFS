@@ -125,8 +125,8 @@ bool copyFileSystem(IFS::FileSystem* srcfs, IFS::FileSystem* dstfs)
 
 	auto sizeToMb = [](size_t size) { return String(size / 1024.0 / 1024.0) + "MB"; };
 
-	m_printf("Used space: 0x%08x (%s), Free space: 0x%08x (%s)\r\n", used, sizeToMb(used).c_str(), info.freeSpace,
-			 sizeToMb(info.freeSpace).c_str());
+	m_printf("Used space: 0x%08x (%s), Free space: 0x%08x (%s)\r\n", unsigned(used), sizeToMb(used).c_str(),
+			 unsigned(info.freeSpace), sizeToMb(info.freeSpace).c_str());
 
 	return res;
 }
@@ -218,13 +218,13 @@ void readStructure(Storage::Partition part, const lfs_block_t pair[2])
 		prevtag = tag.value;
 
 		if(tag.valid) {
-			m_printf("0x%08x: END\r\n\r\n", off);
+			m_printf("0x%08x: END\r\n\r\n", unsigned(off));
 			break;
 		}
 
 		char s[128];
-		m_snprintf(s, sizeof(s), "0x%08x: tag=0x%08x, type=0x%03x, id=0x%03x, size=0x%03x, data", off, tag.value,
-				   tag.type, tag.id, tag.size);
+		m_snprintf(s, sizeof(s), "0x%08x: tag=0x%08x, type=0x%03x, id=0x%03x, size=0x%03x, data", unsigned(off),
+				   unsigned(tag.value), tag.type, tag.id, tag.size);
 		off += sizeof(xtag);
 		if(tag.size == 0x3ff) {
 			// Special value: Tag has been deleted
