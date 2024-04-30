@@ -1,149 +1,26 @@
-/*
- * Webserver demo using IFS
- *
- */
-
 #include <SmingCore.h>
-#include <Data/Stream/MemoryDataStream.h>
-#include <Data/Stream/IFS/DirectoryTemplate.h>
 #include <LittleFS.h>
 #include <Libraries/LittleFS/littlefs/lfs.h>
 #include <Libraries/LittleFS/src/include/LittleFS/FileSystem.h>
-
-// If you want, you can define WiFi settings globally in Eclipse Environment Variables
-#ifndef WIFI_SSID
-#define WIFI_SSID "PleaseEnterSSID" // Put your SSID and password here
-#define WIFI_PWD "PleaseEnterPass"
-#endif
+#include <IFS/FileCopier.h>
+#include <IFS/Debug.h>
 
 namespace
 {
-IMPORT_FSTR(listing_txt, PROJECT_DIR "/resource/listing.txt")
-
-void printDirectory(const char* path)
-{
-	auto printStream = [](IDataSourceStream& stream) {
-		// Use an intermediate memory stream so debug information doesn't get mixed into output
-		MemoryDataStream mem;
-		mem.copyFrom(&stream);
-		Serial.copyFrom(&mem);
-		// Serial.copyFrom(&stream);
-	};
-
-	auto dir = new Directory;
-	if(!dir->open(path)) {
-		debug_e("Open '%s' failed: %s", path, dir->getLastErrorString().c_str());
-		delete dir;
-		return;
-	}
-
-	auto source = new FlashMemoryStream(listing_txt);
-	IFS::DirectoryTemplate tmpl(source, dir);
-	printStream(tmpl);
-}
-
-bool copyFiles(IFS::FileSystem& srcfs, IFS::FileSystem& dstfs, const String& path)
-{
-	IFS::Directory dir(&srcfs);
-	if(!dir.open(path)) {
-		return false;
-	}
-
-	Vector<String> directories;
-
-	while(dir.next()) {
-		auto& stat = dir.stat();
-		if(stat.attr[FileAttribute::MountPoint]) {
-			continue;
-		}
-		String filename;
-		if(path.length() != 0) {
-			filename += path;
-			filename += '/';
-		}
-		filename += stat.name;
-		if(stat.isDir()) {
-			directories.add(filename);
-			continue;
-		}
-		IFS::File src(&srcfs);
-		if(!src.open(filename)) {
-			m_printf("open('%s') failed: %s\r\n", filename.c_str(), src.getLastErrorString().c_str());
-			return false;
-		}
-		IFS::File dst(&dstfs);
-		if(!dst.open(filename, File::CreateNewAlways | File::WriteOnly)) {
-			m_printf("create('%s') failed: %s\r\n", filename.c_str(), dst.getLastErrorString().c_str());
-			return false;
-		}
-		src.readContent([&dst](const char* buffer, size_t size) -> int { return dst.write(buffer, size); });
-		int err = dst.getLastError();
-		if(err < 0) {
-			m_printf("Copy write '%s' failed: %s\r\n", filename.c_str(), dst.getLastErrorString().c_str());
-			return false;
-		}
-		err = src.getLastError();
-		if(err < 0) {
-			m_printf("Copy read '%s' failed: %s\r\n", filename.c_str(), src.getLastErrorString().c_str());
-			return false;
-		}
-
-		// Copy metadata
-		auto callback = [&](IFS::AttributeEnum& e) -> bool {
-			if(!dst.setAttribute(e.tag, e.buffer, e.size)) {
-				m_printf(_F("setAttribute(%s) failed: %s"), toString(e.tag).c_str(), dst.getLastErrorString().c_str());
-				return false;
-			}
-			return true;
-		};
-		char buffer[1024];
-		src.enumAttributes(callback, buffer, sizeof(buffer));
-	}
-	dir.close();
-
-	for(auto& dirname : directories) {
-		int err = dstfs.mkdir(dirname);
-		if(err < 0) {
-			m_printf("mkdir('%s') failed: %s\r\n", dirname.c_str(), dstfs.getErrorString(err).c_str());
-			return false;
-		}
-		if(!copyFiles(srcfs, dstfs, dirname)) {
-			return false;
-		}
-	}
-
-	return true;
-}
-
-bool copyFileSystem(IFS::FileSystem* srcfs, IFS::FileSystem* dstfs)
-{
-	bool res = copyFiles(*srcfs, *dstfs, nullptr);
-
-	IFS::FileSystem::Info info;
-	dstfs->getinfo(info);
-	auto used = info.volumeSize - info.freeSpace;
-
-	auto sizeToMb = [](size_t size) { return String(size / 1024.0 / 1024.0) + "MB"; };
-
-	m_printf("Used space: 0x%08x (%s), Free space: 0x%08x (%s)\r\n", unsigned(used), sizeToMb(used).c_str(),
-			 unsigned(info.freeSpace), sizeToMb(info.freeSpace).c_str());
-
-	return res;
-}
-
 void copySomeFiles()
 {
 	auto part = *Storage::findPartition(Storage::Partition::SubType::Data::fwfs);
 	if(!part) {
 		return;
 	}
-	auto fs = IFS::createFirmwareFilesystem(part);
-	if(fs == nullptr) {
+	std::unique_ptr<IFS::FileSystem> fs{IFS::createFirmwareFilesystem(part)};
+	if(!fs) {
 		return;
 	}
 	fs->mount();
-	copyFileSystem(fs, getFileSystem());
-	delete fs;
+
+	IFS::FileCopier copier(*fs, *getFileSystem());
+	copier.copyDir(nullptr, nullptr);
 }
 
 bool isVolumeEmpty()
@@ -157,14 +34,16 @@ void fstest()
 {
 	lfs_mount();
 
+	auto fs = getFileSystem();
+
 	IFS::Profiler profiler;
-	getFileSystem()->setProfiler(&profiler);
+	fs->setProfiler(&profiler);
 
 	const char str[]{"This is a test attribute, should be at number 10"};
-	getFileSystem()->setxattr("readme.md", IFS::getUserAttributeTag(10), str, sizeof(str));
+	fs->setxattr("readme.md", IFS::getUserAttributeTag(10), str, sizeof(str));
 
-	// getFileSystem()->removeattrtag("readme.md", IFS::getUserAttributeTag(10));
-	int err = getFileSystem()->getxattr("readme.md", IFS::getUserAttributeTag(10), nullptr, 0);
+	// fs->removeattrtag("readme.md", IFS::getUserAttributeTag(10));
+	int err = fs->getxattr("readme.md", IFS::getUserAttributeTag(10), nullptr, 0);
 	debug_w("getxattr(): %d", err);
 
 	if(isVolumeEmpty()) {
@@ -172,16 +51,16 @@ void fstest()
 		copySomeFiles();
 	}
 
-	printDirectory(nullptr);
+	IFS::Debug::listDirectory(Serial, *fs, nullptr);
 
-	getFileSystem()->setProfiler(nullptr);
+	fs->setProfiler(nullptr);
 
 	Serial << _F("Perf stats: ") << profiler << endl;
 
 	auto kb = [](volume_size_t size) { return (size + 1023) / 1024; };
 
 	IFS::FileSystem::Info info;
-	getFileSystem()->getinfo(info);
+	fs->getinfo(info);
 	Serial << F("Volume Size: ") << kb(info.volumeSize) << F(" KB, Used: ") << kb(info.used()) << F(" KB, Free space: ")
 		   << kb(info.freeSpace) << " KB" << endl;
 }
@@ -257,15 +136,10 @@ void test()
 
 void init()
 {
-#if DEBUG_BUILD
 	Serial.begin(COM_SPEED_SERIAL);
 	Serial.systemDebugOutput(true);
-#endif
 
 	test();
 
-	// Delay at startup so terminal gets time to start
-	auto timer = new AutoDeleteTimer;
-	timer->initializeMs<1000>(fstest);
-	timer->startOnce();
+	fstest();
 }
