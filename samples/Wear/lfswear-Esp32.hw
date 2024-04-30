@@ -1,0 +1,8 @@
+{
+    "base_config": "lfswear",
+    "partitions": {
+        "factory": {
+            "size": "210K"
+        }
+    }
+}

@@ -1,0 +1,38 @@
+{
+    "name": "LFS Inspector",
+    "base_config": "standard",
+    "options": [
+        "2m"
+    ],
+    "partitions": {
+        "fwfs1": {
+            "address": "0x00048000",
+            "size": "256K",
+            "type": "data",
+            "subtype": "fwfs",
+            "filename": "out/fwfs1.bin",
+            "build": {
+                "target": "fwfs-build",
+                "config": {
+                    "name": "Test data",
+                    "source": {
+                        "/": "$(SMING_HOME)/Core/Data"
+                    }
+                }
+            }
+        },
+        "lfs1": {
+            "address": "0x00088000",
+            "size": "740K",
+            "type": "data",
+            "subtype": "littlefs"
+        },
+        "spiffs1": {
+            "device": "spiFlash",
+            "address": "0x00141000",
+            "size": "740K",
+            "type": "data",
+            "subtype": "spiffs"
+        }
+    }
+}
