@@ -269,7 +269,7 @@ int FileSystem::fgetextents(FileHandle file, Storage::Partition* part, Extent* l
 			return Error::NotSupported;
 		}
 		auto off = f.off - 1;
-		Extent ext{(f.block * LFS_BLOCK_SIZE) + off, std::min(LFS_BLOCK_SIZE - off, fileSize - offset)};
+		Extent ext{(f.block * LFS_BLOCK_SIZE) + off, std::min(uint32_t(LFS_BLOCK_SIZE - off), fileSize - offset)};
 		if(list && extIndex < extcount) {
 			list[extIndex] = ext;
 		}
