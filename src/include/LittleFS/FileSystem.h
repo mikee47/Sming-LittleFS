@@ -74,7 +74,6 @@ struct StatAttr {
  */
 struct FileDescriptor {
 	CString name;
-	lfs_file_t file{};
 	TimeStamp mtime{};
 	uint8_t buffer[LFS_CACHE_SIZE];
 	struct lfs_file_config config {
@@ -83,14 +82,24 @@ struct FileDescriptor {
 	enum class Flag {
 		TimeChanged,
 		IsRoot,
+		IsDir,
 		Write, ///< LFS throws asserts so we need to pre-check
 	};
 	BitSet<uint8_t, Flag, 3> flags;
+	union {
+		lfs_file_t file{};
+		lfs_dir_t dir;
+	};
 
 	void touch()
 	{
 		mtime = fsGetTimeUTC();
 		flags += Flag::TimeChanged;
+	}
+
+	bool isdir() const
+	{
+		return flags[FileDescriptor::Flag::IsDir];
 	}
 };
 
@@ -146,37 +155,34 @@ private:
 	template <typename T> int get_attr(const char* path, AttributeTag tag, T& attr)
 	{
 		int err = lfs_getattr(&lfs, path, uint8_t(tag), &attr, sizeof(attr));
-		return Error::fromSystem(err);
+		return translateLfsError(err);
 	}
 
-	template <typename T> int get_attr(lfs_file_t& file, AttributeTag tag, T& attr)
+	template <typename T> int get_attr(const FileDescriptor& file, AttributeTag tag, T& attr)
 	{
-		int err = lfs_file_getattr(&lfs, &file, uint8_t(tag), &attr, sizeof(attr));
-		return Error::fromSystem(err);
+		return get_attr(file.name.c_str(), tag, attr);
 	}
 
 	template <typename T> int set_attr(const char* path, AttributeTag tag, const T& attr)
 	{
 		int err = lfs_setattr(&lfs, path, uint8_t(tag), &attr, sizeof(attr));
-		return Error::fromSystem(err);
+		return translateLfsError(err);
 	}
 
-	template <typename T> int set_attr(lfs_file_t& file, AttributeTag tag, const T& attr)
+	template <typename T> int set_attr(const FileDescriptor& file, AttributeTag tag, const T& attr)
 	{
-		int err = lfs_file_setattr(&lfs, &file, uint8_t(tag), &attr, sizeof(attr));
-		return Error::fromSystem(err);
+		return set_attr(file.name.c_str(), tag, attr);
 	}
 
-	template <typename T> int remove_attr(const char* path, AttributeTag tag)
+	int remove_attr(const char* path, AttributeTag tag)
 	{
 		int err = lfs_removeattr(&lfs, path, uint8_t(tag));
-		return Error::fromSystem(err);
+		return translateLfsError(err);
 	}
 
-	int remove_attr(lfs_file_t& file, AttributeTag tag)
+	int remove_attr(const FileDescriptor& file, AttributeTag tag)
 	{
-		int err = lfs_file_removeattr(&lfs, &file, uint8_t(tag));
-		return Error::fromSystem(err);
+		return remove_attr(file.name.c_str(), tag);
 	}
 
 	static int f_read(const struct lfs_config* c, lfs_block_t block, lfs_off_t off, void* buffer, lfs_size_t size)
