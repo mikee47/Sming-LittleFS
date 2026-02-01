@@ -348,7 +348,7 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 	// Copy name into descriptor
 	fd->name = path;
 
-	get_attr(*fd, AttributeTag::ModifiedTime, fd->mtime);
+	get_attr(fd->name.c_str(), AttributeTag::ModifiedTime, fd->mtime);
 
 	if(isRootPath(path)) {
 		fd->flags += FileDescriptor::Flag::IsRoot;
@@ -413,7 +413,7 @@ void FileSystem::flushMeta(FileDescriptor& fd)
 {
 	if(fd.flags[FileDescriptor::Flag::TimeChanged]) {
 		fd.flags -= FileDescriptor::Flag::TimeChanged;
-		int err = set_attr(fd, AttributeTag::ModifiedTime, fd.mtime);
+		int err = set_attr(fd.name.c_str(), AttributeTag::ModifiedTime, fd.mtime);
 		if(err < 0) {
 			debug_e("!! set_attr failed %s", Error::toString(err).c_str());
 		}
@@ -561,7 +561,7 @@ int FileSystem::fsetxattr(FileHandle file, AttributeTag tag, const void* data, s
 		if(tag < AttributeTag::User) {
 			return Error::NotSupported;
 		}
-		return remove_attr(*fd, tag);
+		return remove_attr(fd->name.c_str(), tag);
 	}
 
 	auto attrSize = getAttributeSize(tag);
@@ -788,7 +788,7 @@ int FileSystem::fremove(FileHandle file)
 	CHECK_FILE()
 
 	FileAttributes attr{};
-	get_attr(*fd, AttributeTag::FileAttributes, attr);
+	get_attr(fd->name.c_str(), AttributeTag::FileAttributes, attr);
 	if(attr[FileAttribute::ReadOnly]) {
 		return Error::ReadOnly;
 	}

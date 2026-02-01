@@ -158,31 +158,16 @@ private:
 		return translateLfsError(err);
 	}
 
-	template <typename T> int get_attr(const FileDescriptor& file, AttributeTag tag, T& attr)
-	{
-		return get_attr(file.name.c_str(), tag, attr);
-	}
-
 	template <typename T> int set_attr(const char* path, AttributeTag tag, const T& attr)
 	{
 		int err = lfs_setattr(&lfs, path, uint8_t(tag), &attr, sizeof(attr));
 		return translateLfsError(err);
 	}
 
-	template <typename T> int set_attr(const FileDescriptor& file, AttributeTag tag, const T& attr)
-	{
-		return set_attr(file.name.c_str(), tag, attr);
-	}
-
 	int remove_attr(const char* path, AttributeTag tag)
 	{
 		int err = lfs_removeattr(&lfs, path, uint8_t(tag));
 		return translateLfsError(err);
-	}
-
-	int remove_attr(const FileDescriptor& file, AttributeTag tag)
-	{
-		return remove_attr(file.name.c_str(), tag);
 	}
 
 	static int f_read(const struct lfs_config* c, lfs_block_t block, lfs_off_t off, void* buffer, lfs_size_t size)
