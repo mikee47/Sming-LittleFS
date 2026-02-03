@@ -36,6 +36,14 @@ struct FileDir {
 
 namespace
 {
+// littlefs 2.10 is fussy about paths (more 'posix-like')
+const char* lfsRootPath = "/";
+
+const char* checkRootPath(const char* path)
+{
+	return (path && path[0]) ? path : lfsRootPath;
+}
+
 void fillStat(Stat& stat, const lfs_info& info)
 {
 	auto name = info.name;
@@ -99,6 +107,11 @@ OpenFlags mapFileOpenFlags(OpenFlags flags, lfs_open_flags& lfsflags)
 		return Error::FileNotOpen;                                                                                     \
 	}
 
+#define CHECK_FILE()                                                                                                   \
+	if(fd->isdir()) {                                                                                                  \
+		return translateLfsError(LFS_ERR_ISDIR);                                                                       \
+	}
+
 #define CHECK_WRITE()                                                                                                  \
 	if(!fd->flags[FileDescriptor::Flag::Write]) {                                                                      \
 		return Error::ReadOnly;                                                                                        \
@@ -148,8 +161,8 @@ int FileSystem::tryMount()
 		return err;
 	}
 
-	get_attr("", AttributeTag::ReadAce, rootAcl.readAccess);
-	get_attr("", AttributeTag::WriteAce, rootAcl.writeAccess);
+	get_attr(lfsRootPath, AttributeTag::ReadAce, rootAcl.readAccess);
+	get_attr(lfsRootPath, AttributeTag::WriteAce, rootAcl.writeAccess);
 
 	mounted = true;
 	return FS_OK;
@@ -241,6 +254,7 @@ String FileSystem::getErrorString(int err)
 int FileSystem::fgetextents(FileHandle file, Storage::Partition* part, Extent* list, uint16_t extcount)
 {
 	GET_FD()
+	CHECK_FILE()
 	auto& f = fd->file;
 
 	if(part) {
@@ -282,12 +296,12 @@ int FileSystem::fgetextents(FileHandle file, Storage::Partition* part, Extent* l
 FileHandle FileSystem::open(const char* path, OpenFlags flags)
 {
 	CHECK_MOUNTED()
-	FS_CHECK_PATH(path)
+	path = checkRootPath(path);
 
 	// If file is marked read-only, fail write requests
 	if(flags[OpenFlag::Write]) {
 		FileAttributes attr;
-		get_attr(path ?: "", AttributeTag::FileAttributes, attr);
+		get_attr(path, AttributeTag::FileAttributes, attr);
 		if(attr[FileAttribute::ReadOnly]) {
 			return Error::ReadOnly;
 		}
@@ -316,7 +330,14 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 	}
 
 	auto& fd = fileDescriptors[file - LFS_HANDLE_MIN];
-	int err = lfs_file_opencfg(&lfs, &fd->file, path ?: "", oflags, &fd->config);
+	int err = lfs_file_opencfg(&lfs, &fd->file, path, oflags, &fd->config);
+	if(err == LFS_ERR_ISDIR) {
+		if(flags - (OpenFlag::Read | OpenFlag::Write | OpenFlag::NoFollow)) {
+			return Error::Denied;
+		}
+		fd->flags[FileDescriptor::Flag::IsDir] = true;
+		err = lfs_dir_open(&lfs, &fd->dir, path);
+	}
 	if(err < 0) {
 		err = translateLfsError(err);
 		debug_d("open('%s'): %s", path, getErrorString(file).c_str());
@@ -324,23 +345,15 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 		return err;
 	}
 
-	get_attr(fd->file, AttributeTag::ModifiedTime, fd->mtime);
+	// Copy name into descriptor
+	fd->name = path;
+
+	get_attr(fd->name.c_str(), AttributeTag::ModifiedTime, fd->mtime);
 
 	if(isRootPath(path)) {
 		fd->flags += FileDescriptor::Flag::IsRoot;
 	}
 	fd->flags[FileDescriptor::Flag::Write] = flags[OpenFlag::Write];
-
-	// Copy name into descriptor
-	if(path != nullptr) {
-		const char* p = strrchr(path, '/');
-		if(p == nullptr) {
-			p = path;
-		} else {
-			++p;
-		}
-		fd->name = p;
-	}
 
 	return file;
 }
@@ -351,7 +364,12 @@ int FileSystem::close(FileHandle file)
 
 	flushMeta(*fd);
 
-	int res = lfs_file_close(&lfs, &fd->file);
+	int res;
+	if(fd->isdir()) {
+		res = lfs_dir_close(&lfs, &fd->dir);
+	} else {
+		res = lfs_file_close(&lfs, &fd->file);
+	}
 	fd.reset();
 	return translateLfsError(res);
 }
@@ -359,6 +377,7 @@ int FileSystem::close(FileHandle file)
 int FileSystem::eof(FileHandle file)
 {
 	GET_FD()
+	CHECK_FILE()
 
 	auto size = lfs_file_size(&lfs, &fd->file);
 	if(size < 0) {
@@ -374,6 +393,7 @@ int FileSystem::eof(FileHandle file)
 file_offset_t FileSystem::tell(FileHandle file)
 {
 	GET_FD()
+	CHECK_FILE()
 
 	int res = lfs_file_tell(&lfs, &fd->file);
 	return translateLfsError(res);
@@ -382,6 +402,7 @@ file_offset_t FileSystem::tell(FileHandle file)
 int FileSystem::ftruncate(FileHandle file, file_size_t new_size)
 {
 	GET_FD()
+	CHECK_FILE()
 	CHECK_WRITE()
 
 	int res = lfs_file_truncate(&lfs, &fd->file, new_size);
@@ -392,7 +413,10 @@ void FileSystem::flushMeta(FileDescriptor& fd)
 {
 	if(fd.flags[FileDescriptor::Flag::TimeChanged]) {
 		fd.flags -= FileDescriptor::Flag::TimeChanged;
-		set_attr(fd.file, AttributeTag::ModifiedTime, fd.mtime);
+		int err = set_attr(fd.name.c_str(), AttributeTag::ModifiedTime, fd.mtime);
+		if(err < 0) {
+			debug_e("!! set_attr failed %s", Error::toString(err).c_str());
+		}
 	}
 }
 
@@ -403,6 +427,10 @@ int FileSystem::flush(FileHandle file)
 
 	flushMeta(*fd);
 
+	if(fd->isdir()) {
+		return FS_OK;
+	}
+
 	int res = lfs_file_sync(&lfs, &fd->file);
 	return translateLfsError(res);
 }
@@ -410,6 +438,7 @@ int FileSystem::flush(FileHandle file)
 int FileSystem::read(FileHandle file, void* data, size_t size)
 {
 	GET_FD()
+	CHECK_FILE()
 
 	int res = lfs_file_read(&lfs, &fd->file, data, size);
 	if(res < 0) {
@@ -424,6 +453,7 @@ int FileSystem::read(FileHandle file, void* data, size_t size)
 int FileSystem::write(FileHandle file, const void* data, size_t size)
 {
 	GET_FD()
+	CHECK_FILE()
 	CHECK_WRITE()
 
 	int res = lfs_file_write(&lfs, &fd->file, data, size);
@@ -438,6 +468,7 @@ int FileSystem::write(FileHandle file, const void* data, size_t size)
 file_offset_t FileSystem::lseek(FileHandle file, file_offset_t offset, SeekOrigin origin)
 {
 	GET_FD()
+	CHECK_FILE()
 
 	int res = lfs_file_seek(&lfs, &fd->file, offset, int(origin));
 	return translateLfsError(res);
@@ -446,24 +477,21 @@ file_offset_t FileSystem::lseek(FileHandle file, file_offset_t offset, SeekOrigi
 int FileSystem::stat(const char* path, Stat* stat)
 {
 	CHECK_MOUNTED()
-	FS_CHECK_PATH(path);
+	path = checkRootPath(path);
 
 	if(stat == nullptr) {
 		struct lfs_info info {
 		};
-		int err = lfs_stat(&lfs, path ?: "", &info);
+		int err = lfs_stat(&lfs, path, &info);
 		return translateLfsError(err);
 	}
 
 	*stat = Stat{};
 	stat->acl = rootAcl;
 	StatAttr sa(*stat);
-	struct lfs_stat_config cfg {
-		sa.attrs, sa.count
-	};
 	struct lfs_info info {
 	};
-	int err = lfs_statcfg(&lfs, path ?: "", &info, &cfg);
+	int err = lfs_stata(&lfs, path, &info, sa.attrs, sa.count);
 	if(err < 0) {
 		return translateLfsError(err);
 	}
@@ -477,14 +505,21 @@ int FileSystem::fstat(FileHandle file, Stat* stat)
 {
 	GET_FD()
 
-	auto size = lfs_file_size(&lfs, &fd->file);
-	if(stat == nullptr || size < 0) {
-		return translateLfsError(size);
+	file_size_t size{};
+	if(fd->isdir()) {
+		if(stat == nullptr) {
+			return 0;
+		}
+	} else {
+		size = lfs_file_size(&lfs, &fd->file);
+		if(stat == nullptr || size < 0) {
+			return translateLfsError(size);
+		}
 	}
 
 	*stat = Stat{};
 	stat->fs = this;
-	stat->id = fd->file.id;
+	stat->id = fd->isdir() ? fd->dir.id : fd->file.id;
 	stat->name.copy(fd->name.c_str());
 	stat->size = size;
 	stat->mtime = fd->mtime;
@@ -526,8 +561,7 @@ int FileSystem::fsetxattr(FileHandle file, AttributeTag tag, const void* data, s
 		if(tag < AttributeTag::User) {
 			return Error::NotSupported;
 		}
-		int err = lfs_file_removeattr(&lfs, &fd->file, uint8_t(tag));
-		return translateLfsError(err);
+		return remove_attr(fd->name.c_str(), tag);
 	}
 
 	auto attrSize = getAttributeSize(tag);
@@ -541,7 +575,7 @@ int FileSystem::fsetxattr(FileHandle file, AttributeTag tag, const void* data, s
 		return FS_OK;
 	}
 
-	int res = lfs_file_setattr(&lfs, &fd->file, uint8_t(tag), data, size);
+	int res = lfs_setattr(&lfs, fd->name.c_str(), uint8_t(tag), data, size);
 	if(res >= 0 && fd->flags[FileDescriptor::Flag::IsRoot]) {
 		checkRootAcl(tag, data);
 	}
@@ -568,7 +602,7 @@ int FileSystem::fgetxattr(FileHandle file, AttributeTag tag, void* buffer, size_
 		return sizeof(TimeStamp);
 	}
 
-	return lfs_file_getattr(&lfs, &fd->file, uint8_t(tag), buffer, size);
+	return lfs_getattr(&lfs, fd->name.c_str(), uint8_t(tag), buffer, size);
 }
 
 int FileSystem::fenumxattr(FileHandle file, AttributeEnumCallback callback, void* buffer, size_t bufsize)
@@ -586,22 +620,21 @@ int FileSystem::fenumxattr(FileHandle file, AttributeEnumCallback callback, void
 	struct lfs_attr_enum_t lfs_e {
 		&callback, buffer, bufsize
 	};
-	int res = lfs_file_enumattr(&lfs, &fd->file, lfs_callback, &lfs_e);
+	int res = lfs_enumattr(&lfs, fd->name.c_str(), lfs_callback, &lfs_e);
 	return translateLfsError(res);
 }
 
 int FileSystem::setxattr(const char* path, AttributeTag tag, const void* data, size_t size)
 {
 	CHECK_MOUNTED()
-	FS_CHECK_PATH(path)
+	path = checkRootPath(path);
 
 	if(data == nullptr) {
 		// Cannot delete standard attributes
 		if(tag < AttributeTag::User) {
 			return Error::NotSupported;
 		}
-		int err = lfs_removeattr(&lfs, path ?: "", uint8_t(tag));
-		return translateLfsError(err);
+		return remove_attr(path, tag);
 	}
 
 	if(tag < AttributeTag::User) {
@@ -611,7 +644,7 @@ int FileSystem::setxattr(const char* path, AttributeTag tag, const void* data, s
 	} else if(unsigned(tag) > 255) {
 		return Error::BadParam;
 	}
-	int err = lfs_setattr(&lfs, path ?: "", uint8_t(tag), data, size);
+	int err = lfs_setattr(&lfs, path, uint8_t(tag), data, size);
 
 	if(err >= 0) {
 		checkRootAcl(tag, data);
@@ -623,7 +656,7 @@ int FileSystem::setxattr(const char* path, AttributeTag tag, const void* data, s
 int FileSystem::getxattr(const char* path, AttributeTag tag, void* buffer, size_t size)
 {
 	CHECK_MOUNTED()
-	FS_CHECK_PATH(path)
+	path = checkRootPath(path);
 
 	if(tag < AttributeTag::User) {
 		auto attrSize = getAttributeSize(tag);
@@ -634,21 +667,21 @@ int FileSystem::getxattr(const char* path, AttributeTag tag, void* buffer, size_
 		return Error::BadParam;
 	}
 
-	int res = lfs_getattr(&lfs, path ?: "", uint8_t(tag), buffer, size);
+	int res = lfs_getattr(&lfs, path, uint8_t(tag), buffer, size);
 	return translateLfsError(res);
 }
 
 int FileSystem::opendir(const char* path, DirHandle& dir)
 {
 	CHECK_MOUNTED()
-	FS_CHECK_PATH(path)
+	path = checkRootPath(path);
 
 	auto d = new FileDir{};
 	if(d == nullptr) {
 		return Error::NoMem;
 	}
 
-	int err = lfs_dir_open(&lfs, &d->dir, path ?: "");
+	int err = lfs_dir_open(&lfs, &d->dir, path);
 	if(err < 0) {
 		err = translateLfsError(err);
 		delete d;
@@ -676,12 +709,9 @@ int FileSystem::readdir(DirHandle dir, Stat& stat)
 	stat = Stat{};
 	stat.acl = rootAcl;
 	StatAttr sa(stat);
-	struct lfs_stat_config cfg {
-		sa.attrs, sa.count
-	};
 	struct lfs_info info {
 	};
-	int err = lfs_dir_readcfg(&lfs, &d->dir, &info, &cfg);
+	int err = lfs_dir_reada(&lfs, &d->dir, &info, sa.attrs, sa.count);
 	if(err == 0) {
 		return Error::NoMoreFiles;
 	}
@@ -755,9 +785,10 @@ int FileSystem::remove(const char* path)
 int FileSystem::fremove(FileHandle file)
 {
 	GET_FD()
+	CHECK_FILE()
 
 	FileAttributes attr{};
-	get_attr(fd->file, AttributeTag::FileAttributes, attr);
+	get_attr(fd->name.c_str(), AttributeTag::FileAttributes, attr);
 	if(attr[FileAttribute::ReadOnly]) {
 		return Error::ReadOnly;
 	}
