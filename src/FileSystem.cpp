@@ -223,15 +223,21 @@ int FileSystem::getinfo(Info& info)
 	info.type = Type::LittleFS;
 	info.maxNameLength = LFS_NAME_MAX;
 	info.maxPathLength = UINT16_MAX;
-	if(mounted) {
-		info.attr |= Attribute::Mounted;
-		auto usedBlocks = lfs_fs_size(&lfs);
-		if(usedBlocks < 0) {
-			return translateLfsError(usedBlocks);
-		}
-		info.volumeSize = config.block_count * LFS_BLOCK_SIZE;
-		info.freeSpace = (config.block_count - usedBlocks) * LFS_BLOCK_SIZE;
+	if(!mounted) {
+		return FS_OK;
 	}
+
+	info.attr |= Attribute::Mounted;
+	info.volumeSize = config.block_count * LFS_BLOCK_SIZE;
+	if(info.basicOnly) {
+		return FS_OK;
+	}
+
+	auto usedBlocks = lfs_fs_size(&lfs);
+	if(usedBlocks < 0) {
+		return translateLfsError(usedBlocks);
+	}
+	info.freeSpace = (config.block_count - usedBlocks) * LFS_BLOCK_SIZE;
 
 	return FS_OK;
 }
