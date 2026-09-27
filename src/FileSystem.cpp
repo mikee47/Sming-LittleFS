@@ -325,11 +325,10 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 	for(unsigned i = 0; i < LFS_MAX_FDS; ++i) {
 		auto& fd = fileDescriptors[i];
 		if(!fd) {
-			auto newFd= new FileDescriptor;
-			if (!newFd){
+			fd = std::make_unique<FileDescriptor>();
+			if(!fd) {
 				return Error::NoMem;
 			}
-			fd.reset(newFd);
 			file = LFS_HANDLE_MIN + i;
 			break;
 		}
