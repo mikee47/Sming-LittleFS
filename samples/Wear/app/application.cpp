@@ -24,8 +24,7 @@ public:
 			std::fill_n(count.get(), blockCount, 0);
 		}
 
-		void update(storage_size_t address, size_t size)
-
+		void update(storage_size_t address, size_t)
 		{
 			auto blockNumber = address / blockSize;
 			assert(blockNumber < blockCount);
@@ -107,7 +106,7 @@ void copySomeFiles()
 
 	IFS::FileCopier copier(*fs, *getFileSystem());
 
-	copier.onError([&](const IFS::FileCopier::ErrorInfo& info) -> bool {
+	copier.onError([&](const IFS::FileCopier::ErrorInfo&) -> bool {
 		// Ignore errors, SPIFFS doesn't support some stuff
 		return true;
 	});
