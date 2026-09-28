@@ -339,6 +339,14 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 	}
 
 	auto& fd = fileDescriptors[file - LFS_HANDLE_MIN];
+
+	// Copy name into descriptor
+	fd->name = path;
+	if(!fd->name) {
+		fd.reset();
+		return Error::NoMem;
+	}
+
 	int err = lfs_file_opencfg(&lfs, &fd->file, path, oflags, &fd->config);
 	if(err == LFS_ERR_ISDIR) {
 		if(flags - (OpenFlag::Read | OpenFlag::Write | OpenFlag::NoFollow)) {
@@ -353,9 +361,6 @@ FileHandle FileSystem::open(const char* path, OpenFlags flags)
 		fd.reset();
 		return err;
 	}
-
-	// Copy name into descriptor
-	fd->name = path;
 
 	get_attr(fd->name.c_str(), AttributeTag::ModifiedTime, fd->mtime);
 
